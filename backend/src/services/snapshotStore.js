@@ -40,6 +40,18 @@ const addSnapshot = async (databaseId, projectName, data) => {
       dmsConflictCount:     data.dmsConflictCount     || 0,
       dmsNotProcessedCount: data.dmsNotProcessedCount || 0,
 
+      dmToSpaceTotal:                 data.dmToSpaceTotal                 || 0,
+      dmToSpaceCompleted:             data.dmToSpaceCompleted             || 0,
+      dmToSpaceInProgress:            data.dmToSpaceInProgress            || 0,
+      dmToSpaceConflict:              data.dmToSpaceConflict              || 0,
+      dmToSpaceNoMessage:             data.dmToSpaceNoMessage             || 0,
+      dmToSpaceProcessedWithConflict: data.dmToSpaceProcessedWithConflict || 0,
+
+      dmToSpaceProcessedCount:    data.dmToSpaceProcessedCount    || 0,
+      dmToSpaceInProgressCount:   data.dmToSpaceInProgressCount   || 0,
+      dmToSpaceConflictCount:     data.dmToSpaceConflictCount     || 0,
+      dmToSpaceNotProcessedCount: data.dmToSpaceNotProcessedCount || 0,
+
       createdAt: now
     };
 
@@ -53,7 +65,8 @@ const addSnapshot = async (databaseId, projectName, data) => {
     console.log(
       `[Snapshot] DB ${id} — saved #${cache.length} ` +
       `channelProcessed=${snapshotData.channelProcessedCount} ` +
-      `dmsProcessed=${snapshotData.dmsProcessedCount}`
+      `dmsProcessed=${snapshotData.dmsProcessedCount} ` +
+      `dmToSpaceProcessed=${snapshotData.dmToSpaceProcessedCount}`
     );
 
     return snapshotData;
@@ -91,6 +104,15 @@ const getSnapshots = async (databaseId) => {
   if (memoryCache.has(id) && memoryCache.get(id).length > 0) return memoryCache.get(id);
   return loadFromDB(id);
 };
+
+// ── Time formatter ────────────────────────────────────────────────────────────
+
+function formatAge(minutes) {
+  if (minutes < 60) return `${minutes} min ago`;
+  const hrs  = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins > 0 ? `${hrs} hr ${mins} min ago` : `${hrs} hr ago`;
+}
 
 // ── DIFF ──────────────────────────────────────────────────────────────────────
 
@@ -131,10 +153,11 @@ const getDiff = async (databaseId) => {
   const prevTs     = new Date(prev.timestamp).getTime();
   const ageMinutes = Math.round((latestTs - prevTs) / 60000);
 
-  const channelDiff = latest.channelProcessedCount - prev.channelProcessedCount;
-  const dmsDiff     = latest.dmsProcessedCount     - prev.dmsProcessedCount;
-  const totalDiff   = channelDiff + dmsDiff;
-  const isStalled   = totalDiff === 0;
+  const channelDiff    = latest.channelProcessedCount               - prev.channelProcessedCount;
+  const dmsDiff        = latest.dmsProcessedCount                   - prev.dmsProcessedCount;
+  const dmToSpaceDiff  = (latest.dmToSpaceProcessedCount || 0)      - (prev.dmToSpaceProcessedCount || 0);
+  const totalDiff      = channelDiff + dmsDiff + dmToSpaceDiff;
+  const isStalled      = totalDiff === 0;
 
   let stalledSince = null;
   if (isStalled) {
@@ -143,8 +166,9 @@ const getDiff = async (databaseId) => {
       const curr   = snapshots[i];
       const before = snapshots[i - 1];
       if (
-        curr.channelProcessedCount === latest.channelProcessedCount &&
-        curr.dmsProcessedCount     === latest.dmsProcessedCount
+        curr.channelProcessedCount               === latest.channelProcessedCount &&
+        curr.dmsProcessedCount                   === latest.dmsProcessedCount &&
+        (curr.dmToSpaceProcessedCount || 0)      === (latest.dmToSpaceProcessedCount || 0)
       ) {
         stalledSince = before.timestamp;
       } else {
@@ -158,15 +182,22 @@ const getDiff = async (databaseId) => {
     channelPrevious: prev.channelProcessedCount,
     channelDiff,
     channelMessage: channelDiff === 0
-      ? `⚠ No change vs ${ageMinutes} min ago`
-      : `↑ +${channelDiff.toLocaleString()} vs ${ageMinutes} min ago`,
+      ? `⚠ No change in last ${formatAge(ageMinutes)}`
+      : `+${channelDiff.toLocaleString()} msgs in last ${formatAge(ageMinutes)}`,
 
     dmsCurrent:  latest.dmsProcessedCount,
     dmsPrevious: prev.dmsProcessedCount,
     dmsDiff,
     dmsMessage: dmsDiff === 0
-      ? `⚠ No change vs ${ageMinutes} min ago`
-      : `↑ +${dmsDiff.toLocaleString()} vs ${ageMinutes} min ago`,
+      ? `⚠ No change in last ${formatAge(ageMinutes)}`
+      : `+${dmsDiff.toLocaleString()} msgs in last ${formatAge(ageMinutes)}`,
+
+    dmToSpaceCurrent:  latest.dmToSpaceProcessedCount || 0,
+    dmToSpacePrevious: prev.dmToSpaceProcessedCount   || 0,
+    dmToSpaceDiff,
+    dmToSpaceMessage: dmToSpaceDiff === 0
+      ? `⚠ No change in last ${formatAge(ageMinutes)}`
+      : `+${dmToSpaceDiff.toLocaleString()} msgs in last ${formatAge(ageMinutes)}`,
 
     totalDiff,
     diff: totalDiff, // backward-compat
@@ -178,8 +209,8 @@ const getDiff = async (databaseId) => {
     snapshotAge:   ageMinutes,
     hasEnoughData: true,
     message: isStalled
-      ? `⚠ No change in last ${ageMinutes} min`
-      : `↑ +${totalDiff.toLocaleString()} in last ${ageMinutes} min`
+      ? `⚠ No change in last ${formatAge(ageMinutes)}`
+      : `+${totalDiff.toLocaleString()} msgs in last ${formatAge(ageMinutes)}`
   };
 };
 

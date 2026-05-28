@@ -124,7 +124,9 @@ router.get('/live/:databaseId', async (req, res) => {
       createdAt:       config.createdAt,
       channels:        data.channels,
       dms:             data.dms,
+      dmToSpace:       data.dmToSpace,
       dataQuality:     data.dataQuality,
+      config:          data.config,
       diff: {
         channelCurrent:  diffResult.channelCurrent,
         channelPrevious: diffResult.channelPrevious,
@@ -134,6 +136,10 @@ router.get('/live/:databaseId', async (req, res) => {
         dmsPrevious:     diffResult.dmsPrevious,
         dmsDiff:         diffResult.dmsDiff,
         dmsMessage:      diffResult.dmsMessage,
+        dmToSpaceCurrent:  diffResult.dmToSpaceCurrent,
+        dmToSpacePrevious: diffResult.dmToSpacePrevious,
+        dmToSpaceDiff:     diffResult.dmToSpaceDiff,
+        dmToSpaceMessage:  diffResult.dmToSpaceMessage,
         totalDiff:       diffResult.totalDiff,
         diff:            diffResult.diff,
         isStalled:       diffResult.isStalled,
@@ -146,6 +152,100 @@ router.get('/live/:databaseId', async (req, res) => {
     });
   } catch (err) {
     console.error('[Projects] Unexpected error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/timeline/:databaseId', async (req, res) => {
+  try {
+    const dbId = Number(req.params.databaseId);
+    const snapshots = await snapshotStore.getAllSnapshots(dbId);
+
+    if (!snapshots || snapshots.length === 0) {
+      return res.json({ timeline: [], message: 'No snapshots yet' });
+    }
+
+    const latest     = snapshots[snapshots.length - 1];
+    const latestTime = new Date(latest.timestamp).getTime();
+
+    const windows = [
+      { label: '10 min',  minutes: 10   },
+      { label: '30 min',  minutes: 30   },
+      { label: '1 hour',  minutes: 60   },
+      { label: '24 hrs',  minutes: 1440 }
+    ];
+
+    // Snapshots are taken every 30 min. Allow a comparison snapshot to be at most
+    // 60% of the window size away from the target before calling it unavailable.
+    // This prevents the 10-min window from using the same 30-min-old snapshot as
+    // the 30-min window and showing identical (misleading) data.
+    const windowTolerance = (w) => w.minutes * 60 * 1000 * 0.6;
+
+    const timeline = windows.map(window => {
+      const targetTime  = latestTime - window.minutes * 60 * 1000;
+      const tolerance   = windowTolerance(window);
+
+      let closest = null;
+      let minDiff = Infinity;
+
+      snapshots.forEach(snap => {
+        const snapTime = new Date(snap.timestamp).getTime();
+        // Exclude the latest snapshot itself — we need a PAST comparison point
+        if (snapTime < latestTime) {
+          const diff = Math.abs(snapTime - targetTime);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closest = snap;
+          }
+        }
+      });
+
+      // No usable comparison snapshot
+      if (!closest) {
+        return {
+          window: window.label, minutes: window.minutes,
+          channelDiff: null, dmsDiff: null, dmToSpaceDiff: null, totalDiff: null,
+          available: false, message: `No snapshot from ${window.label} ago`
+        };
+      }
+
+      // Comparison snapshot is too far from the target — would show misleading data
+      if (minDiff > tolerance) {
+        return {
+          window: window.label, minutes: window.minutes,
+          channelDiff: null, dmsDiff: null, dmToSpaceDiff: null, totalDiff: null,
+          available: false,
+          message: `No snapshot close enough to ${window.label} ago (nearest is ${Math.round(minDiff / 60000)} min away)`
+        };
+      }
+
+      const channelDiff   = (latest.channelProcessedCount   || 0) - (closest.channelProcessedCount   || 0);
+      const dmsDiff       = (latest.dmsProcessedCount       || 0) - (closest.dmsProcessedCount       || 0);
+      const dmToSpaceDiff = (latest.dmToSpaceProcessedCount || 0) - (closest.dmToSpaceProcessedCount || 0);
+      const totalDiff     = channelDiff + dmsDiff + dmToSpaceDiff;
+
+      const actualMinutes = Math.round(
+        (latestTime - new Date(closest.timestamp).getTime()) / 60000
+      );
+
+      return {
+        window:        window.label,
+        minutes:       window.minutes,
+        actualMinutes,
+        channelDiff:    Math.max(0, channelDiff),
+        dmsDiff:        Math.max(0, dmsDiff),
+        dmToSpaceDiff:  Math.max(0, dmToSpaceDiff),
+        totalDiff:      Math.max(0, totalDiff),
+        available:      true,
+        isStalled:      totalDiff === 0,
+        latestCount:   { channel: latest.channelProcessedCount || 0, dms: latest.dmsProcessedCount || 0, dmToSpace: latest.dmToSpaceProcessedCount || 0 },
+        previousCount: { channel: closest.channelProcessedCount || 0, dms: closest.dmsProcessedCount || 0, dmToSpace: closest.dmToSpaceProcessedCount || 0 }
+      };
+    });
+
+    res.json({ databaseId: dbId, latestSnapshot: latest.timestamp, timeline });
+  } catch (err) {
+    console.error('[Timeline] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

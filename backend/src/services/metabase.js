@@ -484,10 +484,25 @@ async function fetchProjectData(databaseId) {
     processedCount: 0, inProgressCount: 0, notProcessedCount: 0, conflictCount: 0,
   });
 
+  // Load project config flags before processing
+  const ProjectConfigModel = require('../models/ProjectConfig');
+  const projConfig   = await ProjectConfigModel.findOne({ metabaseDatabaseId: databaseId }).lean();
+  const showDms       = projConfig?.showDms       !== false; // default true
+  const showDmToSpace = projConfig?.showDmToSpace === true;  // default false
+
+  console.log(
+    `[Metabase] DB ${databaseId} config →`,
+    projConfig
+      ? `found | showDms=${projConfig.showDms} showDmToSpace=${projConfig.showDmToSpace}`
+      : 'NO ProjectConfig document found for this DB ID'
+  );
+
   const result = {
     channels:    mkSection(),
     dms:         mkSection(),
-    dataQuality: { totalRaw: 0, cloudfuzeSkipped: 0, cloudfuzeUserIds: [] }
+    dmToSpace:   mkSection(),
+    dataQuality: { totalRaw: 0, skipped: 0, realRows: 0 },
+    config:      { showDms, showDmToSpace }
   };
 
   // ── MessageWorkSpace: single table, split by directOrGroupMessage ─────────
@@ -504,7 +519,7 @@ async function fetchProjectData(databaseId) {
     const response = await metabaseRequest('POST', '/api/dataset', {
       database:   databaseId,
       type:       'query',
-      query:      { 'source-table': workspaceTable.id },
+      query:      { 'source-table': workspaceTable.id, limit: 1000000 },
       parameters: []
     });
     cols = response.data?.cols || [];
@@ -529,6 +544,9 @@ async function fetchProjectData(databaseId) {
   const idxUserId        = getIdx(['userId',              'UserId']);
   const idxProcessStatus = getIdx(['processStatus',       'ProcessStatus']);
   const idxDirectOrGroup = getIdx(['directOrGroupMessage','DirectOrGroupMessage']);
+  // Exact match only — prevents getIdx accidentally matching an unrelated column
+  const idxDmToSpace     = cols.findIndex(c => c.name === 'DmToSpace' || c.name === 'dmToSpace');
+  const idxChannelName   = getIdx(['ChannelName',         'channelName',   'ConversationName', 'SpaceName', 'Name', 'channel_name', 'conversation_name']);
   const idxProcessed     = getIdx(['processedCount',      'ProcessedCount']);
   const idxInProgress    = getIdx(['inProgressCount',     'InProgressCount']);
   const idxNotProcessed  = getIdx(['notProcessedCount',   'NotProcessedCount']);
@@ -536,14 +554,14 @@ async function fetchProjectData(databaseId) {
 
   console.log(
     `[Metabase] Col indices — ownerEmail:${idxOwnerEmail} userId:${idxUserId} ` +
-    `processStatus:${idxProcessStatus} directOrGroup:${idxDirectOrGroup}`
+    `processStatus:${idxProcessStatus} directOrGroup:${idxDirectOrGroup} dmToSpace:${idxDmToSpace}`
   );
+  console.log(`[Metabase] Config flags — showDms:${showDms} showDmToSpace:${showDmToSpace}`);
   console.log(
     `[Metabase] Msg col indices — processed:${idxProcessed} inProgress:${idxInProgress} ` +
     `notProcessed:${idxNotProcessed} conflict:${idxConflict}`
   );
 
-  const cloudfuzeUserIds = new Set();
   result.dataQuality.totalRaw = rows.length;
 
   // ── Diagnostic logging ────────────────────────────────────────────────────
@@ -605,55 +623,284 @@ async function fetchProjectData(databaseId) {
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  for (const row of rows) {
-    const email = idxOwnerEmail >= 0 ? (row[idxOwnerEmail] || '').toString().toLowerCase().trim() : '';
+  // Convert raw indexed rows to named-property objects
+  const allRows = rows.map(row => ({
+    ownerEmailId:         idxOwnerEmail    >= 0 ? String(row[idxOwnerEmail]    ?? '') : '',
+    userId:               idxUserId        >= 0 ? String(row[idxUserId]        ?? '') : '',
+    processStatus:        idxProcessStatus >= 0 ? String(row[idxProcessStatus] ?? '') : '',
+    directOrGroupMessage: idxDirectOrGroup >= 0 ? row[idxDirectOrGroup] : null,
+    dmToSpace:            idxDmToSpace     >= 0 ? row[idxDmToSpace]     : null,
+    channelName:          idxChannelName   >= 0 ? String(row[idxChannelName] ?? '') : '',
+    processedCount:       idxProcessed     >= 0 ? row[idxProcessed]     : 0,
+    inProgressCount:      idxInProgress    >= 0 ? row[idxInProgress]    : 0,
+    notProcessedCount:    idxNotProcessed  >= 0 ? row[idxNotProcessed]  : 0,
+    conflictCount:        idxConflict      >= 0 ? row[idxConflict]      : 0,
+  }));
 
-    if (email.includes('@cloudfuze')) {
-      const userId = idxUserId >= 0 ? (row[idxUserId] || '').toString().trim() : '';
-      if (userId) {
-        cloudfuzeUserIds.add(userId);
-        console.log(`[Metabase] @cloudfuze — email:${email} userId:${userId}`);
-      }
-      result.dataQuality.cloudfuzeSkipped++;
-      continue;
-    }
-
-    // false = Channels, true = DMS
-    const rawDirOrGrp = idxDirectOrGroup >= 0 ? row[idxDirectOrGroup] : null;
-    const isDMS = rawDirOrGrp === true || rawDirOrGrp === 1 ||
-                  String(rawDirOrGrp).toLowerCase() === 'true';
-    const section = isDMS ? result.dms : result.channels;
-
-    const rawStatus = idxProcessStatus >= 0 ? (row[idxProcessStatus] || '').toString().trim().toUpperCase() : '';
-    const status    = rawStatus.replace(/[\s_]/g, '');
-
-    if (rawStatus) {
-      if      (status === 'PROCESSED')                                       section.completed++;
-      else if (status.includes('PROCESSED') && status.includes('CONFLICT')) section.processedWithConflict++;
-      else if (status === 'CONFLICT')                                        section.conflict++;
-      else if (status === 'INPROGRESS')                                      section.inProgress++;
-      else if (status === 'NOMESSAGE')                                       section.noMessage++;
-    } else {
-      // Fallback to numeric count columns when processStatus is empty
-      if      (idxProcessed  >= 0 && Number(row[idxProcessed]  || 0) > 0) section.completed++;
-      else if (idxConflict   >= 0 && Number(row[idxConflict]   || 0) > 0) section.conflict++;
-      else if (idxInProgress >= 0 && Number(row[idxInProgress] || 0) > 0) section.inProgress++;
-      else                                                                  section.noMessage++;
-    }
-
-    section.total++;
-    if (idxProcessed    >= 0) section.processedCount    += Number(row[idxProcessed]    || 0);
-    if (idxInProgress   >= 0) section.inProgressCount   += Number(row[idxInProgress]   || 0);
-    if (idxNotProcessed >= 0) section.notProcessedCount += Number(row[idxNotProcessed] || 0);
-    if (idxConflict     >= 0) section.conflictCount     += Number(row[idxConflict]     || 0);
+  // ── DB 303 owner-email diagnostic ────────────────────────────────────────
+  if (String(databaseId) === '303') {
+    console.log(`[Metabase] DB ${databaseId} owner emails:`);
+    const ownerEmails = [...new Set(
+      allRows.map(r => r.ownerEmailId).filter(Boolean)
+    )];
+    ownerEmails.forEach(email => {
+      const isCloudfuze = email.toLowerCase().includes('@cloudfuze');
+      console.log(`  ${isCloudfuze ? '❌ SKIP' : '✅ KEEP'} ${email}`);
+    });
   }
 
-  result.dataQuality.cloudfuzeUserIds = [...cloudfuzeUserIds];
+  // ── STEP 2: Filter out @cloudfuze rows ONLY ──────────────────────────────
+  const realRows = allRows.filter(row => {
+    const email = (row.ownerEmailId || '').toLowerCase();
+    return !email.includes('@cloudfuze');
+  });
 
-  const ProjectConfig = require('../models/ProjectConfig');
-  const config = await ProjectConfig.findOne({ metabaseDatabaseId: databaseId }).lean();
+  console.log(`[Metabase] DB ${databaseId}:`);
+  console.log(`  Total rows:     ${allRows.length}`);
+  console.log(`  Skipped (@cloudfuze): ${allRows.length - realRows.length}`);
+  console.log(`  Real rows:      ${realRows.length}`);
+
+  // ── STEP 3: Split into channels vs DMS vs DmToSpace ─────────────────────
+  const isTrue  = v => v === true  || v === 1 || (typeof v === 'string' && (v.toLowerCase() === 'true'  || v === '1'));
+  const isFalse = v => v === false || v === 0 || (typeof v === 'string' && (v.toLowerCase() === 'false' || v === '0'));
+
+  const channelRows = realRows.filter(row => isFalse(row.directOrGroupMessage));
+
+  // Respect showDms flag — if false, skip all DM rows
+  const dmsRows = showDms
+    ? realRows.filter(row => isTrue(row.directOrGroupMessage))
+    : [];
+
+  console.log(`  Channel rows:    ${channelRows.length}`);
+  console.log(`  DMS rows:        ${dmsRows.length} (showDms=${showDms})`);
+  console.log(`  DmToSpace:       will query separately via native query (showDmToSpace=${showDmToSpace})`);
+
+  // ── STEP 4: Count statuses from channel rows ──────────────────────────────
+  let channelTotal                 = channelRows.length;
+  let channelCompleted             = 0;
+  let channelInProgress            = 0;
+  let channelConflict              = 0;
+  let channelNoMessage             = 0;
+  let channelProcessedWithConflict = 0;
+  let channelProcessedCount        = 0;
+  let channelInProgressCount       = 0;
+  let channelConflictCount         = 0;
+  let channelNotProcessedCount     = 0;
+
+  channelRows.forEach(row => {
+    const status = (row.processStatus || '').toString().toUpperCase().trim();
+
+    if (status === 'PROCESSED') {
+      channelCompleted++;
+    } else if (status === 'IN PROGRESS' || status === 'IN_PROGRESS') {
+      channelInProgress++;
+    } else if (status === 'CONFLICT') {
+      channelConflict++;
+    } else if (status === 'NO MESSAGE' || status === 'NO_MESSAGE') {
+      channelNoMessage++;
+    } else if (
+      status === 'PROCESSED WITH SOME CONFLICT' ||
+      status === 'PROCESSED_WITH_SOME_CONFLICT'
+    ) {
+      channelProcessedWithConflict++;
+    } else {
+      channelNoMessage++;
+    }
+
+    channelProcessedCount    += Number(row.processedCount    || 0);
+    channelInProgressCount   += Number(row.inProgressCount   || 0);
+    channelConflictCount     += Number(row.conflictCount     || 0);
+    channelNotProcessedCount += Number(row.notProcessedCount || 0);
+  });
+
+  // ── STEP 5: Count statuses from DMS rows ──────────────────────────────────
+  let dmsTotal                 = dmsRows.length;
+  let dmsCompleted             = 0;
+  let dmsInProgress            = 0;
+  let dmsConflict              = 0;
+  let dmsNoMessage             = 0;
+  let dmsProcessedWithConflict = 0;
+  let dmsProcessedCount        = 0;
+  let dmsInProgressCount       = 0;
+  let dmsConflictCount         = 0;
+  let dmsNotProcessedCount     = 0;
+
+  dmsRows.forEach(row => {
+    const status = (row.processStatus || '').toString().toUpperCase().trim();
+
+    if (status === 'PROCESSED') {
+      dmsCompleted++;
+    } else if (status === 'IN PROGRESS' || status === 'IN_PROGRESS') {
+      dmsInProgress++;
+    } else if (status === 'CONFLICT') {
+      dmsConflict++;
+    } else if (status === 'NO MESSAGE' || status === 'NO_MESSAGE') {
+      dmsNoMessage++;
+    } else if (
+      status === 'PROCESSED WITH SOME CONFLICT' ||
+      status === 'PROCESSED_WITH_SOME_CONFLICT'
+    ) {
+      dmsProcessedWithConflict++;
+    } else {
+      dmsNoMessage++;
+    }
+
+    dmsProcessedCount    += Number(row.processedCount    || 0);
+    dmsInProgressCount   += Number(row.inProgressCount   || 0);
+    dmsConflictCount     += Number(row.conflictCount     || 0);
+    dmsNotProcessedCount += Number(row.notProcessedCount || 0);
+  });
+
+  // ── STEP 6: DmToSpace — separate native query to bypass Metabase row cap ──
+  let dmToSpaceTotal                 = 0;
+  let dmToSpaceCompleted             = 0;
+  let dmToSpaceInProgress            = 0;
+  let dmToSpaceConflict              = 0;
+  let dmToSpaceNoMessage             = 0;
+  let dmToSpaceProcessedWithConflict = 0;
+  let dmToSpaceProcessedCount        = 0;
+  let dmToSpaceInProgressCount       = 0;
+  let dmToSpaceConflictCount         = 0;
+  let dmToSpaceNotProcessedCount     = 0;
+  let dmToSpaceConflictChannels      = [];
+
+  if (showDmToSpace && workspaceTable) {
+    try {
+      // ── Query 1: aggregate by processStatus — avoids all column-detection issues ──
+      const aggPipeline = [
+        { $match: { dmToSpace: true, ownerEmailId: { $not: { $regex: '@cloudfuze', $options: 'i' } } } },
+        { $group: {
+          _id:              '$processStatus',
+          workspaceCount:   { $sum: 1 },
+          processedMsgs:    { $sum: '$processedCount' },
+          inProgressMsgs:   { $sum: '$inProgressCount' },
+          conflictMsgs:     { $sum: '$conflictCount' },
+          notProcessedMsgs: { $sum: '$notProcessedCount' }
+        }}
+      ];
+
+      const aggRes  = await metabaseRequest('POST', '/api/dataset', {
+        database: databaseId,
+        type:     'native',
+        native:   { query: JSON.stringify(aggPipeline), collection: workspaceTable.name }
+      });
+
+      const aggCols = aggRes.data?.cols || [];
+      const aggRows = aggRes.data?.rows || [];
+      console.log(`[Metabase] DmToSpace aggregation — ${aggRows.length} status groups`);
+
+      // Build a col-name → index map for the aggregation result
+      const aggMap = {};
+      aggCols.forEach((c, i) => {
+        const key = (c.name || c.display_name || '').toLowerCase();
+        if (key) aggMap[key] = i;
+      });
+      console.log(`[Metabase] DmToSpace agg cols:`, Object.keys(aggMap));
+
+      const idAgg       = aggMap['_id']              ?? 0;
+      const wsCount     = aggMap['workspacecount']   ?? aggMap['workspaceCount']   ?? 1;
+      const procMsgs    = aggMap['processedmsgs']    ?? aggMap['processedMsgs']    ?? 2;
+      const inProgMsgs  = aggMap['inprogressmsgs']   ?? aggMap['inProgressMsgs']   ?? 3;
+      const confMsgs    = aggMap['conflictmsgs']     ?? aggMap['conflictMsgs']     ?? 4;
+      const notProcMsgs = aggMap['notprocessedmsgs'] ?? aggMap['notProcessedMsgs'] ?? 5;
+
+      aggRows.forEach(r => {
+        const status = String(r[idAgg] ?? '').toUpperCase().replace(/[\s-]+/g, '_').trim();
+        const wc     = Number(r[wsCount]     || 0);
+        const pm     = Number(r[procMsgs]    || 0);
+        const im     = Number(r[inProgMsgs]  || 0);
+        const cm     = Number(r[confMsgs]    || 0);
+        const nm     = Number(r[notProcMsgs] || 0);
+
+        dmToSpaceTotal        += wc;
+        dmToSpaceProcessedCount    += pm;
+        dmToSpaceInProgressCount   += im;
+        dmToSpaceConflictCount     += cm;
+        dmToSpaceNotProcessedCount += nm;
+
+        if      (status === 'PROCESSED')              dmToSpaceCompleted             += wc;
+        else if (status === 'IN_PROGRESS')            dmToSpaceInProgress            += wc;
+        else if (status === 'CONFLICT')               dmToSpaceConflict              += wc;
+        else if (status === 'NO_MESSAGE')             dmToSpaceNoMessage             += wc;
+        else if (status === 'NOT_PROCESSED')          dmToSpaceNoMessage             += wc;
+        else if (status.startsWith('PROCESSED_WITH')) dmToSpaceProcessedWithConflict += wc;
+        else                                          dmToSpaceNoMessage             += wc;
+      });
+
+      console.log(`[Metabase] DmToSpace workspace — total:${dmToSpaceTotal} completed:${dmToSpaceCompleted} inProgress:${dmToSpaceInProgress} conflict:${dmToSpaceConflict} procWithConflict:${dmToSpaceProcessedWithConflict} noMessage:${dmToSpaceNoMessage}`);
+      console.log(`[Metabase] DmToSpace messages  — processed:${dmToSpaceProcessedCount} inProgress:${dmToSpaceInProgressCount} conflict:${dmToSpaceConflictCount} notProcessed:${dmToSpaceNotProcessedCount}`);
+
+      // ── Query 2: channel names for conflict rows (tooltip) ────────────────────
+      if (dmToSpaceConflict > 0 || dmToSpaceProcessedWithConflict > 0) {
+        try {
+          const conflictPipeline = [
+            { $match: { dmToSpace: true, conflictCount: { $gt: 0 }, ownerEmailId: { $not: { $regex: '@cloudfuze', $options: 'i' } } } },
+            { $project: { channelName: 1, workSpaceName: 1, ownerEmailId: 1 } }
+          ];
+          const confRes  = await metabaseRequest('POST', '/api/dataset', {
+            database: databaseId,
+            type:     'native',
+            native:   { query: JSON.stringify(conflictPipeline), collection: workspaceTable.name }
+          });
+          const confCols = confRes.data?.cols || [];
+          const confRows = confRes.data?.rows || [];
+          const confMap  = {};
+          confCols.forEach((c, i) => { confMap[(c.name || c.display_name || '').toLowerCase()] = i; });
+          const nameIdx  = confMap['channelname'] ?? confMap['workspacename'] ?? confMap['owneremailid'] ?? 0;
+          dmToSpaceConflictChannels = confRows
+            .map(r => String(r[nameIdx] ?? ''))
+            .filter(Boolean);
+          console.log(`[Metabase] DmToSpace conflict channels: ${dmToSpaceConflictChannels.length}`);
+        } catch (e) {
+          console.warn('[Metabase] DmToSpace conflict channels query failed:', e.message);
+        }
+      }
+    } catch (err) {
+      console.error('[Metabase] DmToSpace native query failed:', err.message);
+    }
+  }
+
+  // ── STEP 7: Assign computed values to result ──────────────────────────────
+  result.channels.total                 = channelTotal;
+  result.channels.completed             = channelCompleted;
+  result.channels.inProgress            = channelInProgress;
+  result.channels.conflict              = channelConflict;
+  result.channels.noMessage             = channelNoMessage;
+  result.channels.processedWithConflict = channelProcessedWithConflict;
+  result.channels.processedCount        = channelProcessedCount;
+  result.channels.inProgressCount       = channelInProgressCount;
+  result.channels.conflictCount         = channelConflictCount;
+  result.channels.notProcessedCount     = channelNotProcessedCount;
+
+  result.dms.total                      = dmsTotal;
+  result.dms.completed                  = dmsCompleted;
+  result.dms.inProgress                 = dmsInProgress;
+  result.dms.conflict                   = dmsConflict;
+  result.dms.noMessage                  = dmsNoMessage;
+  result.dms.processedWithConflict      = dmsProcessedWithConflict;
+  result.dms.processedCount             = dmsProcessedCount;
+  result.dms.inProgressCount            = dmsInProgressCount;
+  result.dms.conflictCount              = dmsConflictCount;
+  result.dms.notProcessedCount          = dmsNotProcessedCount;
+
+  result.dmToSpace.total                 = dmToSpaceTotal;
+  result.dmToSpace.completed             = dmToSpaceCompleted;
+  result.dmToSpace.inProgress            = dmToSpaceInProgress;
+  result.dmToSpace.conflict              = dmToSpaceConflict;
+  result.dmToSpace.noMessage             = dmToSpaceNoMessage;
+  result.dmToSpace.processedWithConflict = dmToSpaceProcessedWithConflict;
+  result.dmToSpace.processedCount        = dmToSpaceProcessedCount;
+  result.dmToSpace.inProgressCount       = dmToSpaceInProgressCount;
+  result.dmToSpace.conflictCount         = dmToSpaceConflictCount;
+  result.dmToSpace.notProcessedCount     = dmToSpaceNotProcessedCount;
+  result.dmToSpace.conflictChannels      = dmToSpaceConflictChannels;
+
+  result.dataQuality.totalRaw = allRows.length;
+  result.dataQuality.skipped  = allRows.length - realRows.length;
+  result.dataQuality.realRows = realRows.length;
+
   const snapshotStore = require('./snapshotStore');
-  await snapshotStore.addSnapshot(databaseId, config?.projectName || '', {
+  await snapshotStore.addSnapshot(databaseId, projConfig?.projectName || '', {
     channelTotal:                result.channels.total,
     channelCompleted:            result.channels.completed,
     channelInProgress:           result.channels.inProgress,
@@ -673,20 +920,34 @@ async function fetchProjectData(databaseId) {
     dmsInProgressCount:          result.dms.inProgressCount,
     dmsConflictCount:            result.dms.conflictCount,
     dmsNotProcessedCount:        result.dms.notProcessedCount,
+
+    dmToSpaceTotal:                 result.dmToSpace.total,
+    dmToSpaceCompleted:             result.dmToSpace.completed,
+    dmToSpaceInProgress:            result.dmToSpace.inProgress,
+    dmToSpaceConflict:              result.dmToSpace.conflict,
+    dmToSpaceNoMessage:             result.dmToSpace.noMessage,
+    dmToSpaceProcessedWithConflict: result.dmToSpace.processedWithConflict,
+    dmToSpaceProcessedCount:        result.dmToSpace.processedCount,
+    dmToSpaceInProgressCount:       result.dmToSpace.inProgressCount,
+    dmToSpaceConflictCount:         result.dmToSpace.conflictCount,
+    dmToSpaceNotProcessedCount:     result.dmToSpace.notProcessedCount,
   });
 
+  console.log('\n[Metabase] FINAL RESULT:');
   console.log(
-    `[Metabase] FINAL SUMMARY DB ${databaseId}:\n` +
-    `  Channels — total:${result.channels.total} completed:${result.channels.completed} ` +
-      `inProgress:${result.channels.inProgress} conflict:${result.channels.conflict} ` +
-      `noMessage:${result.channels.noMessage} ` +
-      `processedCount:${result.channels.processedCount} conflictCount:${result.channels.conflictCount}\n` +
-    `  DMs      — total:${result.dms.total} completed:${result.dms.completed} ` +
-      `inProgress:${result.dms.inProgress} conflict:${result.dms.conflict} ` +
-      `noMessage:${result.dms.noMessage} ` +
-      `processedCount:${result.dms.processedCount} conflictCount:${result.dms.conflictCount}\n` +
-    `  DataQuality — totalRaw:${result.dataQuality.totalRaw} skipped:${result.dataQuality.cloudfuzeSkipped}`
+    `  Channels — total:${channelTotal} ` +
+    `completed:${channelCompleted} ` +
+    `inProgress:${channelInProgress} ` +
+    `conflict:${channelConflict} ` +
+    `noMessage:${channelNoMessage}`
   );
+  console.log(
+    `  DMs — total:${dmsTotal} ` +
+    `completed:${dmsCompleted} ` +
+    `inProgress:${dmsInProgress} ` +
+    `conflict:${dmsConflict}`
+  );
+
   return result;
 }
 

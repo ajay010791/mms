@@ -15,7 +15,10 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Basic middleware
-app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5047',
+  credentials: true
+}));
 app.use(express.json());
 
 // Health check — always works even if DB is down

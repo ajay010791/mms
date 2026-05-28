@@ -65,7 +65,7 @@ export default function AdminAzure() {
             {field('Client ID', 'clientId', 'text', 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx')}
             {field('Tenant ID', 'tenantId', 'text', 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx')}
             {field('Client Secret', 'clientSecret', 'password', '••••••••')}
-            {field('Redirect URI', 'redirectUri', 'text', 'http://localhost:3000/auth/callback')}
+            {field('Redirect URI', 'redirectUri', 'text', 'http://localhost:5047/auth/callback')}
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button onClick={save} disabled={saving} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{saving ? 'Saving...' : 'Save'}</button>

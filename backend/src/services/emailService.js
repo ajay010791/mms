@@ -12,7 +12,7 @@
  *    → Allow public client flows: YES
  *
  * 3. Authentication → Platform: Single-page application
- *    → Redirect URI: http://localhost:3000 (already done)
+ *    → Redirect URI: http://localhost:5047 (already done)
  */
 
 const nodemailer = require('nodemailer');
@@ -97,6 +97,94 @@ const getAccessToken = async () => {
   return refreshOAuthToken();
 };
 
+// ── MICROSOFT GRAPH API EMAIL ─────────────────────────────────────────────────
+
+const getGraphEmailConfig = async () => {
+  try {
+    const mongoose = require('mongoose');
+    const db  = mongoose.connection.db;
+    const doc = await db.collection('systemconfigs').findOne({ key: 'graphEmail' });
+    if (doc?.data?.clientId && doc?.data?.clientSecret && doc?.data?.tenantId && doc?.data?.senderEmail) {
+      return doc.data;
+    }
+  } catch (e) {
+    console.error('[Email] getGraphEmailConfig error:', e.message);
+  }
+  return null;
+};
+
+const getGraphToken = async (config) => {
+  const qs   = require('querystring');
+  const resp = await axios.post(
+    `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`,
+    qs.stringify({
+      grant_type:    'client_credentials',
+      client_id:     config.clientId,
+      client_secret: config.clientSecret,
+      scope:         'https://graph.microsoft.com/.default'
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+  if (!resp.data.access_token) throw new Error('No access token in Graph response');
+  return resp.data.access_token;
+};
+
+const sendViaGraph = async (to, subject, textBody, htmlBody, config) => {
+  const token = await getGraphToken(config);
+
+  const recipients = to
+    .split(',')
+    .map(e => e.trim())
+    .filter(e => e.includes('@'))
+    .map(address => ({ emailAddress: { address } }));
+
+  if (recipients.length === 0) throw new Error(`No valid recipients: "${to}"`);
+
+  try {
+    await axios.post(
+      `https://graph.microsoft.com/v1.0/users/${config.senderEmail}/sendMail`,
+      {
+        message: {
+          subject,
+          body:         { contentType: 'HTML', content: htmlBody || textBody.replace(/\n/g, '<br>') },
+          toRecipients: recipients
+        },
+        saveToSentItems: true
+      },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    // Extract the Graph API error message for clear diagnostics
+    const graphError = err.response?.data?.error;
+    if (graphError) {
+      const code    = graphError.code    || err.response?.status;
+      const message = graphError.message || 'Unknown Graph API error';
+      console.error(`[Email] Graph API error ${code}:`, message);
+
+      // Translate common 403 codes into actionable messages
+      if (err.response?.status === 403) {
+        if (code === 'Authorization_RequestDenied' || message.includes('permission')) {
+          throw new Error(
+            `403 Authorization_RequestDenied — The app is missing the Mail.Send Application permission or admin consent has not been granted. ` +
+            `Go to Azure Portal → App registrations → API permissions → Microsoft Graph → Application permissions → Mail.Send → Grant admin consent.`
+          );
+        }
+        if (code === 'MailboxNotEnabledForRESTAPI' || message.includes('MailboxNotEnabled')) {
+          throw new Error(
+            `403 MailboxNotEnabledForRESTAPI — The sender mailbox "${config.senderEmail}" does not have an active Exchange/Outlook licence. ` +
+            `Assign a Microsoft 365 licence that includes Exchange Online to this account.`
+          );
+        }
+        throw new Error(`403 ${code}: ${message}`);
+      }
+      throw new Error(`Graph API ${code}: ${message}`);
+    }
+    throw err;
+  }
+
+  console.log(`[Email] ✓ Sent via Microsoft Graph to: ${to}`);
+};
+
 // ── GET SMTP CONFIG ───────────────────────────────────────────────────────────
 
 const getSmtpConfig = async () => {
@@ -143,124 +231,73 @@ const createTransporter = async () => {
   const mongoose = require('mongoose');
   const db = mongoose.connection.db;
 
-  // Load SMTP config directly from MongoDB
-  const doc = await db.collection('systemconfigs').findOne({ key: 'smtp' });
+  const doc = await db.collection('systemconfigs')
+    .findOne({ key: 'smtp' });
 
   if (!doc?.data?.host) {
-    throw new Error('SMTP not configured in Admin → SMTP');
+    throw new Error('SMTP not configured. Go to Admin → SMTP.');
   }
 
   const config = doc.data;
 
   console.log('[Email] Creating transporter:', {
-    host:            config.host,
-    port:            config.port,
-    username:        config.username,
-    authType:        config.authType || 'password',
-    hasPassword:     !!config.password,
-    hasRefreshToken: !!config.refreshToken,
-    hasAccessToken:  !!config.accessToken
+    host:        config.host,
+    port:        config.port,
+    username:    config.username,
+    authType:    'password',
+    hasPassword: !!config.password
   });
-
-  // ── OAUTH2 ──────────────────────────────────────────────
-  if (config.authType === 'oauth2') {
-    console.log('[Email] Using OAuth2 auth');
-
-    // Check if stored access token is still valid
-    let accessToken = config.accessToken;
-    const tokenExpiry = config.tokenExpiry ? new Date(config.tokenExpiry).getTime() : 0;
-    const isExpired   = tokenExpiry - Date.now() < 5 * 60 * 1000;
-
-    if (isExpired || !accessToken) {
-      console.log('[Email] Access token expired — refreshing');
-      accessToken = await refreshOAuthToken();
-    }
-
-    const transporter = nodemailer.createTransport({
-      host:   config.host   || 'smtp.office365.com',
-      port:   Number(config.port) || 587,
-      secure: false,
-      auth: {
-        type:         'OAuth2',
-        user:         config.username,
-        accessToken,
-        clientId:     config.clientId,
-        tenantId:     config.tenantId,
-        refreshToken: config.refreshToken
-      },
-      tls: { rejectUnauthorized: false }
-    });
-
-    // Verify connection — retry with fresh token on failure
-    try {
-      await transporter.verify();
-      console.log('[Email] ✓ OAuth2 SMTP verified');
-    } catch (verifyErr) {
-      console.error('[Email] OAuth2 verify failed:', verifyErr.message);
-      console.log('[Email] Refreshing token and retrying...');
-      const newToken = await refreshOAuthToken();
-
-      const transporter2 = nodemailer.createTransport({
-        host:   config.host || 'smtp.office365.com',
-        port:   Number(config.port) || 587,
-        secure: false,
-        auth: {
-          type:         'OAuth2',
-          user:         config.username,
-          accessToken:  newToken,
-          clientId:     config.clientId,
-          tenantId:     config.tenantId,
-          refreshToken: config.refreshToken
-        },
-        tls: { rejectUnauthorized: false }
-      });
-      await transporter2.verify();
-      console.log('[Email] ✓ OAuth2 SMTP verified after refresh');
-      return { transporter: transporter2, config: { ...config, fromName: config.fromName || 'Migration Monitor' } };
-    }
-
-    return { transporter, config: { ...config, fromName: config.fromName || 'Migration Monitor' } };
-  }
-
-  // ── PASSWORD AUTH ────────────────────────────────────────
-  console.log('[Email] Using password auth');
 
   if (!config.password) {
     throw new Error(
-      'SMTP password not configured. Go to Admin → SMTP or connect Microsoft account.'
+      'SMTP password not set. Go to Admin → SMTP and enter password.'
     );
   }
 
   const transporter = nodemailer.createTransport({
     host:   config.host,
     port:   Number(config.port) || 587,
-    secure: config.port === 465,
-    auth:   { user: config.username, pass: config.password },
-    tls:    { rejectUnauthorized: false }
+    secure: Number(config.port) === 465,
+    auth: {
+      user: config.username,
+      pass: config.password
+    },
+    tls: { rejectUnauthorized: false }
   });
 
   await transporter.verify();
-  console.log('[Email] ✓ Password SMTP verified');
+  console.log('[Email] ✓ SMTP verified');
 
-  return { transporter, config: { ...config, fromName: config.fromName || 'Migration Monitor' } };
+  return {
+    transporter,
+    config: { ...config, fromName: config.fromName || 'Migration Monitor' }
+  };
 };
 
 // ── SEND ALERT ────────────────────────────────────────────────────────────────
 
 const sendAlert = async (to, subject, textBody, htmlBody) => {
   try {
-    // Validate and log full email before anything else
-    console.log('[Email] Sending to:', JSON.stringify(to));
-    console.log('[Email] Email length:', to?.length);
-    console.log('[Email] Email chars:', [...(to || '')]);
+    // Normalise comma-separated recipients
+    const cleanTo = (to || '').toString()
+      .split(',')
+      .map(e => e.trim().replace(/['"]/g, ''))
+      .filter(e => e.includes('@'))
+      .join(', ');
 
-    const cleanTo = (to || '').toString().trim().replace(/['"]/g, '');
+    if (!cleanTo) throw new Error(`No valid email address found in: "${to}"`);
 
-    console.log('[Email] Clean email:', cleanTo);
+    console.log('[Email] Sending to:', cleanTo);
 
-    if (!cleanTo || !cleanTo.includes('@')) {
-      throw new Error(`Invalid email address: "${cleanTo}"`);
+    // ── Route: Microsoft Graph API takes priority over SMTP ──────────────────
+    const graphConfig = await getGraphEmailConfig();
+    if (graphConfig) {
+      console.log('[Email] Using Microsoft Graph API');
+      return await sendViaGraph(cleanTo, subject, textBody, htmlBody, graphConfig);
     }
+
+    // ── Route: SMTP fallback ──────────────────────────────────────────────────
+    console.log('[Email] Using SMTP');
 
     const { transporter, config } = await createTransporter();
 
@@ -320,6 +357,8 @@ const sendAlert = async (to, subject, textBody, htmlBody) => {
 
 module.exports = {
   sendAlert,
+  sendViaGraph,
+  getGraphEmailConfig,
   getSmtpConfig,
   createTransporter,
   refreshOAuthToken,

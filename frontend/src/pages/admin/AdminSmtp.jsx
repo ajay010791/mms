@@ -2,72 +2,222 @@ import React, { useState, useEffect } from 'react';
 import api from '../../utils/axios';
 import toast from 'react-hot-toast';
 
-export default function AdminSmtp() {
+// ─── Microsoft Graph API tab ──────────────────────────────────────────────────
+
+function GraphEmailTab() {
+  const [form, setForm] = useState({
+    clientId: '', clientSecret: '', tenantId: '',
+    senderEmail: '', defaultAlertEmail: '', testTo: ''
+  });
+  const [configured, setConfigured] = useState(false);
+  const [secretSaved, setSecretSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  useEffect(() => {
+    api.get('/api/admin/config/graph-email')
+      .then(res => {
+        if (res.data?.configured) {
+          setConfigured(true);
+          setSecretSaved(res.data.secretSaved);
+          setForm(f => ({
+            ...f,
+            clientId:          res.data.clientId          || '',
+            tenantId:          res.data.tenantId          || '',
+            senderEmail:       res.data.senderEmail        || '',
+            defaultAlertEmail: res.data.defaultAlertEmail  || '',
+            clientSecret: ''
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    if (!form.clientId || !form.tenantId || !form.senderEmail) {
+      toast.error('Client ID, Tenant ID and Sender Email are required');
+      return;
+    }
+    if (!secretSaved && !form.clientSecret) {
+      toast.error('Client Secret is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post('/api/admin/config/graph-email', {
+        clientId:          form.clientId.trim(),
+        clientSecret:      form.clientSecret.trim(),
+        tenantId:          form.tenantId.trim(),
+        senderEmail:       form.senderEmail.trim(),
+        defaultAlertEmail: form.defaultAlertEmail.trim()
+      });
+      toast.success('Microsoft Graph email settings saved ✓');
+      setConfigured(true);
+      setSecretSaved(true);
+      setForm(f => ({ ...f, clientSecret: '' }));
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    const recipient = form.testTo.trim() || form.defaultAlertEmail.trim() || form.senderEmail.trim();
+    if (!recipient) {
+      toast.error('Enter a recipient email to test');
+      return;
+    }
+    setTesting(true);
+    try {
+      const res = await api.post('/api/admin/config/graph-email/test', { to: recipient });
+      toast.success(res.data.message || 'Test email sent ✓');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Test failed');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!window.confirm('Remove Microsoft Graph email configuration?')) return;
+    setRemoving(true);
+    try {
+      await api.delete('/api/admin/config/graph-email');
+      toast.success('Graph email configuration removed');
+      setConfigured(false);
+      setSecretSaved(false);
+      setForm({ clientId: '', clientSecret: '', tenantId: '', senderEmail: '', defaultAlertEmail: '', testTo: '' });
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Remove failed');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const f = (label, key, type = 'text', ph = '', hint = '') => (
+    <div style={{ marginBottom: 16 }}>
+      <label style={labelStyle}>{label}</label>
+      <input
+        type={type}
+        value={form[key]}
+        onChange={e => setForm(d => ({ ...d, [key]: e.target.value }))}
+        placeholder={ph}
+        style={inputStyle}
+      />
+      {key === 'clientSecret' && secretSaved && !form.clientSecret && (
+        <div style={{ fontSize: 10, color: '#3B6D11', marginTop: 3 }}>
+          <i className="ti ti-circle-check" style={{ fontSize: 11 }} /> Secret saved — leave blank to keep existing
+        </div>
+      )}
+      {hint && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>{hint}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Azure Portal requirements notice */}
+      <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: '#1e40af', lineHeight: 1.6 }}>
+        <strong>Azure Portal — one-time setup required:</strong>
+        <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
+          <li>App registrations → your app → <strong>API permissions</strong> → Add → Microsoft Graph → Application permissions → <code>Mail.Send</code> → Grant admin consent</li>
+          <li>The <strong>Sender Email</strong> below must be a valid mailbox in your tenant (e.g. an Outlook/Exchange account)</li>
+        </ol>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+        {f('Client ID *',    'clientId',    'text',     'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx')}
+        {f('Tenant ID *',    'tenantId',    'text',     'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx')}
+        {f('Client Secret *','clientSecret','password', secretSaved ? '••••••••  (saved)' : 'Paste your Azure client secret')}
+        {f('Sender Email *', 'senderEmail', 'email',    'alerts@yourcompany.com',
+           'The mailbox emails are sent FROM — must exist in your tenant')}
+        {f('Default Alert Recipient', 'defaultAlertEmail', 'text', 'ops@yourcompany.com, manager@yourcompany.com',
+           'Comma-separated. Used when a project has no alert email set')}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+        <button onClick={handleSave} disabled={saving} style={btnPrimary}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+
+        {configured && (
+          <>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1 }}>
+              <input
+                type="email"
+                value={form.testTo}
+                onChange={e => setForm(d => ({ ...d, testTo: e.target.value }))}
+                placeholder={form.defaultAlertEmail || 'recipient@company.com'}
+                style={{ ...inputStyle, flex: 1, maxWidth: 300 }}
+              />
+              <button onClick={handleTest} disabled={testing} style={btnGreen}>
+                {testing ? 'Sending…' : 'Send test email'}
+              </button>
+            </div>
+            <button onClick={handleRemove} disabled={removing} style={btnDanger}>
+              {removing ? 'Removing…' : 'Remove config'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── SMTP Password tab ────────────────────────────────────────────────────────
+
+function SmtpTab() {
   const [form, setForm] = useState({
     host: '', port: '587', username: '', password: '',
     fromName: 'Migration Monitor', defaultAlertEmail: ''
   });
-  const [showPass,      setShowPass]      = useState(false);
   const [configured,    setConfigured]    = useState(false);
   const [saving,        setSaving]        = useState(false);
   const [testing,       setTesting]       = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
-  const [oauthStatus,   setOauthStatus]   = useState(null);
 
   useEffect(() => {
-    const loadConfig = async () => {
-      try {
-        const [smtpRes, oauthRes] = await Promise.all([
-          api.get('/api/admin/config/smtp/direct'),
-          api.get('/api/admin/config/smtp/oauth2/status').catch(() => ({ data: null }))
-        ]);
-
-        if (smtpRes.data?.raw) {
+    api.get('/api/admin/config/smtp/direct')
+      .then(res => {
+        if (res.data?.raw) {
+          const r = res.data.raw;
           setForm(prev => ({
             ...prev,
-            host:              smtpRes.data.raw.host || '',
-            port:              String(smtpRes.data.raw.port || 587),
-            username:          smtpRes.data.raw.username || '',
-            fromName:          smtpRes.data.raw.fromName || 'Migration Monitor',
-            defaultAlertEmail: smtpRes.data.raw.defaultAlertEmail || '',
+            host:              r.host              || '',
+            port:              r.port              || 587,
+            username:          r.username          || '',
+            fromName:          r.fromName          || 'Migration Monitor',
+            defaultAlertEmail: r.defaultAlertEmail || '',
             password:          ''
           }));
           setConfigured(true);
-          if (smtpRes.data.raw.passwordSaved) setPasswordSaved(true);
+          setPasswordSaved(r.passwordSaved || false);
         }
-
-        if (oauthRes.data) setOauthStatus(oauthRes.data);
-
-      } catch (e) {
-        console.error('Failed to load SMTP config:', e);
-      }
-    };
-    loadConfig();
+      })
+      .catch(() => {});
   }, []);
 
   const handleSave = async () => {
+    if (!form.host || !form.username) {
+      toast.error('Host and username are required');
+      return;
+    }
+    setSaving(true);
     try {
-      setSaving(true);
-      const payload = {
+      await api.post('/api/admin/config/smtp/direct', {
         host:              form.host.trim(),
         port:              Number(form.port) || 587,
         username:          form.username.trim(),
-        fromName:          form.fromName || 'Migration Monitor',
-        defaultAlertEmail: form.defaultAlertEmail.trim()
-      };
-
-      if (form.password?.trim()) {
-        payload.password = form.password.trim();
-      } else if (passwordSaved) {
-        const existing = await api.get('/api/admin/config/smtp/direct');
-        payload.password = existing.data?.raw?.password || '';
-      }
-
-      await api.post('/api/admin/config/smtp/direct', payload);
-      toast.success('SMTP config saved ✓');
-      setPasswordSaved(!!payload.password);
-      setConfigured(true);
+        password:          form.password?.trim() || '',
+        fromName:          form.fromName?.trim() || 'Migration Monitor',
+        defaultAlertEmail: form.defaultAlertEmail?.trim(),
+        authType:          'password'
+      });
+      toast.success('SMTP settings saved ✓');
       setForm(prev => ({ ...prev, password: '' }));
+      setPasswordSaved(!!form.password?.trim());
+      setConfigured(true);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
     } finally {
@@ -87,207 +237,128 @@ export default function AdminSmtp() {
     }
   };
 
-  const handleConnectMS = async () => {
-    try {
-      const res = await api.get('/api/admin/config/smtp/oauth2/auth-url');
-      console.log('[SMTP OAuth] Auth details:', {
-        redirectUri: res.data.redirectUri,
-        clientId:    res.data.clientId?.substring(0, 8) + '...',
-        tenantId:    res.data.tenantId?.substring(0, 8) + '...'
-      });
-      // Full-page redirect — OAuth2 authorization code flow cannot use a popup
-      window.location.href = res.data.authUrl;
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to get auth URL');
-    }
-  };
-
-  const handleDisconnect = async () => {
-    try {
-      await api.post('/api/admin/config/smtp/oauth2/disconnect');
-      setOauthStatus({ connected: false, authType: 'password' });
-      setPasswordSaved(false);
-      toast.success('Microsoft account disconnected');
-    } catch (err) {
-      toast.error('Disconnect failed');
-    }
-  };
-
-  const isOAuth = oauthStatus?.connected;
-  const inputStyle = {
-    width: '100%', padding: '8px 12px', borderRadius: 7,
-    border: '1px solid #E5E7EB', fontSize: 13, outline: 'none',
-    boxSizing: 'border-box'
-  };
-  const labelStyle = {
-    display: 'block', fontSize: 12, fontWeight: 600,
-    color: '#374151', marginBottom: 4
-  };
-
   const f = (label, key, type = 'text', ph = '') => (
     <div style={{ marginBottom: 16 }}>
       <label style={labelStyle}>{label}</label>
-      <div style={{ position: 'relative' }}>
-        <input
-          type={(key === 'password' && !showPass) ? 'password' : type}
-          value={form[key]}
-          onChange={e => setForm(d => ({ ...d, [key]: e.target.value }))}
-          placeholder={ph}
-          style={{ ...inputStyle, paddingRight: key === 'password' ? 36 : 12 }}
-        />
-        {key === 'password' && (
-          <button type="button" onClick={() => setShowPass(v => !v)}
-            style={{
-              position: 'absolute', right: 8, top: '50%',
-              transform: 'translateY(-50%)', background: 'none',
-              border: 'none', cursor: 'pointer', color: '#9ca3af'
-            }}>
-            {showPass ? '🙈' : '👁'}
-          </button>
-        )}
-      </div>
-      {key === 'password' && passwordSaved && form.password === '' && (
-        <div style={{ fontSize: 10, color: '#3B6D11', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-          <i className="ti ti-circle-check" style={{ fontSize: 12 }} />
-          Password saved — leave blank to keep existing
-        </div>
-      )}
+      <input
+        type={type}
+        value={form[key]}
+        onChange={e => setForm(d => ({ ...d, [key]: e.target.value }))}
+        placeholder={ph}
+        style={inputStyle}
+      />
     </div>
   );
 
   return (
-    <>
-      <div style={{ maxWidth: 640 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-          <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>
-            Email / SMTP Configuration
-          </h1>
-          <span style={{
-            fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600,
-            background: isOAuth ? '#EAF3DE' : configured ? '#f0fdf4' : '#F9FAFB',
-            color:      isOAuth ? '#27500A' : configured ? '#16a34a' : '#6b7280',
-            border: `1px solid ${isOAuth ? '#C0DD97' : configured ? '#bbf7d0' : '#E5E7EB'}`
-          }}>
-            {isOAuth ? '✓ OAuth2 Connected' : configured ? '✓ Configured' : 'Not configured'}
-          </span>
-        </div>
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+        {f('SMTP Host',               'host',     'text',   'smtp.gmail.com')}
+        {f('Port',                    'port',     'number', '587')}
+        {f('Username / Sender Email', 'username', 'email',  'alerts@yourcompany.com')}
 
-        <div style={{ background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: 24 }}>
-
-          {/* ── OAuth2 Connection ── */}
-          <div style={{
-            background: isOAuth ? '#EAF3DE' : '#F9FAFB',
-            border: `0.5px solid ${isOAuth ? '#C0DD97' : '#E5E7EB'}`,
-            borderRadius: 8,
-            padding: '12px 14px',
-            marginBottom: 20
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div>
-                <div style={{
-                  fontSize: 12, fontWeight: 600,
-                  color: isOAuth ? '#27500A' : '#374151',
-                  marginBottom: 3,
-                  display: 'flex', alignItems: 'center', gap: 6
-                }}>
-                  <i className={`ti ${isOAuth ? 'ti-circle-check' : 'ti-brand-office'}`}
-                    style={{ fontSize: 14 }} />
-                  {isOAuth
-                    ? `Connected: ${oauthStatus.connectedEmail}`
-                    : 'Microsoft OAuth2 (Recommended)'}
-                </div>
-                <div style={{ fontSize: 10, color: '#6b7280' }}>
-                  {isOAuth
-                    ? `Connected: ${new Date(oauthStatus.connectedAt).toLocaleDateString()}`
-                    : 'More secure than password — no credentials stored locally'}
-                </div>
-              </div>
-
-              {isOAuth ? (
-                <button
-                  onClick={handleDisconnect}
-                  style={{
-                    padding: '5px 10px', flexShrink: 0,
-                    background: '#FCEBEB', border: '0.5px solid #F7C1C1',
-                    borderRadius: 6, fontSize: 11, color: '#791F1F', cursor: 'pointer'
-                  }}
-                >
-                  Disconnect
-                </button>
-              ) : (
-                <button
-                  onClick={handleConnectMS}
-                  style={{
-                    padding: '6px 12px', flexShrink: 0,
-                    background: '#185FA5', border: 'none',
-                    borderRadius: 6, fontSize: 11, fontWeight: 500,
-                    color: 'white', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: 6
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 21 21">
-                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                  </svg>
-                  Connect Microsoft Account
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* ── SMTP Fields ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-            {f('SMTP Host', 'host', 'text',
-              isOAuth ? 'smtp.office365.com' : 'smtp.gmail.com')}
-            {f('Port', 'port', 'number', '587')}
-            {f('Username / Sender Email', 'username', 'email', 'alerts@yourcompany.com')}
-
-            {/* Hide password when OAuth2 is active */}
-            {!isOAuth && f('Password', 'password', 'password', '••••••••')}
-
-            {f('From Name', 'fromName', 'text', 'Migration Monitor')}
-            {f('Default Alert Recipient', 'defaultAlertEmail', 'email', 'ops-team@yourcompany.com')}
-          </div>
-
-          {isOAuth && (
-            <div style={{
-              fontSize: 11, color: '#6b7280',
-              background: '#F9FAFB', border: '0.5px solid #E5E7EB',
-              borderRadius: 6, padding: '8px 12px', marginBottom: 16
-            }}>
-              🔐 Using OAuth2 — password field not required.
-              SMTP will authenticate via Microsoft access tokens.
+        <div style={{ marginBottom: 16 }}>
+          <label style={labelStyle}>Password</label>
+          <input
+            type="password"
+            value={form.password}
+            onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+            placeholder={passwordSaved ? '••••••••  (saved — leave blank to keep)' : 'Enter SMTP password'}
+            style={inputStyle}
+          />
+          {passwordSaved && !form.password && (
+            <div style={{ fontSize: 10, color: '#3B6D11', marginTop: 3 }}>
+              <i className="ti ti-circle-check" style={{ fontSize: 11 }} /> Password saved — leave blank to keep existing
             </div>
           )}
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                padding: '8px 18px', borderRadius: 7, border: 'none',
-                background: saving ? '#93c5fd' : '#2563eb',
-                color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer'
-              }}
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-            <button
-              onClick={handleTest}
-              disabled={testing}
-              style={{
-                padding: '8px 18px', borderRadius: 7,
-                border: '1px solid #16a34a', background: '#f0fdf4',
-                color: '#16a34a', fontSize: 13, fontWeight: 600, cursor: 'pointer'
-              }}
-            >
-              {testing ? 'Sending...' : 'Send test email'}
-            </button>
-          </div>
         </div>
+
+        {f('From Name',               'fromName',          'text',  'Migration Monitor')}
+        {f('Default Alert Recipient', 'defaultAlertEmail', 'text',  'ops@yourcompany.com')}
       </div>
-    </>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={handleSave} disabled={saving} style={btnPrimary}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {configured && (
+          <button onClick={handleTest} disabled={testing} style={btnGreen}>
+            {testing ? 'Sending…' : 'Send test email'}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+export default function AdminSmtp() {
+  const [tab, setTab] = useState('graph');
+
+  return (
+    <div style={{ padding: '28px 32px', maxWidth: 700 }}>
+
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827', margin: 0 }}>Email Configuration</h1>
+        <p style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+          Choose how Migration Monitor sends alert emails. Microsoft Graph API is recommended for Outlook / Microsoft 365.
+        </p>
+      </div>
+
+      {/* Tab selector */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 24, background: '#F3F4F6', borderRadius: 8, padding: 3, width: 'fit-content' }}>
+        {[
+          { key: 'graph', label: 'Microsoft Graph API (Azure)', icon: 'ti-brand-azure' },
+          { key: 'smtp',  label: 'SMTP Password',               icon: 'ti-mail' }
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            style={{
+              padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6,
+              background: tab === t.key ? '#fff' : 'transparent',
+              color:      tab === t.key ? '#1d4ed8' : '#6b7280',
+              boxShadow:  tab === t.key ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              transition: 'all 0.15s'
+            }}
+          >
+            <i className={`ti ${t.icon}`} style={{ fontSize: 13 }} />
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: 24 }}>
+        {tab === 'graph' ? <GraphEmailTab /> : <SmtpTab />}
+      </div>
+
+    </div>
+  );
+}
+
+// ─── Shared styles ────────────────────────────────────────────────────────────
+
+const inputStyle = {
+  width: '100%', padding: '8px 12px', borderRadius: 7,
+  border: '1px solid #E5E7EB', fontSize: 13, outline: 'none',
+  boxSizing: 'border-box'
+};
+const labelStyle = {
+  display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4
+};
+const btnPrimary = {
+  padding: '8px 18px', borderRadius: 7, border: 'none',
+  background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer'
+};
+const btnGreen = {
+  padding: '8px 18px', borderRadius: 7,
+  border: '1px solid #16a34a', background: '#f0fdf4',
+  color: '#16a34a', fontSize: 13, fontWeight: 600, cursor: 'pointer'
+};
+const btnDanger = {
+  padding: '8px 18px', borderRadius: 7,
+  border: '1px solid #dc2626', background: '#fef2f2',
+  color: '#dc2626', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginLeft: 'auto'
+};

@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
-import AdminLayout from './AdminLayout';
+import api from '../../utils/axios';
 import useAuth from '../../hooks/useAuth';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const PLATFORMS = ['Slack', 'Google Chat', 'Teams', 'Meta'];
 
 const MIGRATION_TYPES = [
   { value: 'messaging', label: 'Messaging' },
@@ -11,26 +10,19 @@ const MIGRATION_TYPES = [
   { value: 'content',   label: 'Content' },
 ];
 
-const CLOUD_SOURCES = {
-  messaging: ['Slack', 'Google Chat', 'Teams'],
-  email:     ['Gmail', 'Outlook'],
-  content:   ['SharePoint', 'OneDrive', 'Google Drive'],
-};
-
 const EMPTY_FORM = {
   projectName:        '',
   metabaseDatabaseId: '',
+  projectId:          '',
+  source:             '',
+  destination:        '',
   migrationType:      '',
-  cloudSource:        '',
   combinationType:    '',
   teamsWebhookUrl:    '',
   alertEmail:         '',
+  showDms:            true,
+  showDmToSpace:      false,
 };
-
-function authHeaders() {
-  const t = window.__authToken;
-  return t ? { Authorization: `Bearer ${t}` } : {};
-}
 
 export default function AdminProjects() {
   const { user } = useAuth();
@@ -47,7 +39,7 @@ export default function AdminProjects() {
   async function fetchProjects() {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/api/admin/projects`, { headers: authHeaders() });
+      const res = await api.get('/api/admin/projects');
       setProjects(res.data);
     } catch (e) {
       setError(e.response?.data?.error || 'Failed to load projects');
@@ -70,11 +62,15 @@ export default function AdminProjects() {
     setForm({
       projectName:        p.projectName        || '',
       metabaseDatabaseId: p.metabaseDatabaseId != null ? String(p.metabaseDatabaseId) : '',
+      projectId:          p.projectId          || '',
+      source:             p.source             || '',
+      destination:        p.destination        || '',
       migrationType:      p.migrationType      || '',
-      cloudSource:        p.cloudSource        || '',
       combinationType:    p.combinationType    || '',
       teamsWebhookUrl:    p.teamsWebhookUrl    || '',
       alertEmail:         p.alertEmail         || '',
+      showDms:            p.showDms            !== false,
+      showDmToSpace:      p.showDmToSpace      === true,
     });
     setError('');
     setSuccess('');
@@ -96,12 +92,13 @@ export default function AdminProjects() {
       const payload = {
         ...form,
         metabaseDatabaseId: Number(form.metabaseDatabaseId),
+        combinationType: form.combinationType || (form.source && form.destination ? `${form.source} → ${form.destination}` : ''),
       };
       if (editingId) {
-        await axios.put(`${API}/api/admin/projects/${editingId}`, payload, { headers: authHeaders() });
+        await api.put(`/api/admin/projects/${editingId}`, payload);
         setSuccess('Project updated.');
       } else {
-        await axios.post(`${API}/api/admin/projects`, payload, { headers: authHeaders() });
+        await api.post('/api/admin/projects', payload);
         setSuccess('Project added.');
       }
       setEditingId(null);
@@ -118,7 +115,7 @@ export default function AdminProjects() {
     if (!window.confirm(`Delete "${p.projectName}"? This will hide it from the dashboard.`)) return;
     setError('');
     try {
-      await axios.delete(`${API}/api/admin/projects/${p._id}`, { headers: authHeaders() });
+      await api.delete(`/api/admin/projects/${p._id}`);
       setSuccess(`"${p.projectName}" removed.`);
       await fetchProjects();
     } catch (e) {
@@ -126,10 +123,8 @@ export default function AdminProjects() {
     }
   }
 
-  const cloudOptions = CLOUD_SOURCES[form.migrationType] || [];
-
   return (
-    <AdminLayout>
+    <div style={{ padding: '28px 32px' }}>
       <div style={{ maxWidth: 820 }}>
 
         {/* Header */}
@@ -178,6 +173,19 @@ export default function AdminProjects() {
                 </p>
               </div>
 
+              {/* Project ID */}
+              <div>
+                <label style={labelStyle}>Project ID *</label>
+                <input
+                  value={form.projectId}
+                  onChange={e => setField('projectId', e.target.value)}
+                  required
+                  placeholder="e.g. PROJ-001"
+                  style={inputStyle}
+                />
+                <p style={helpStyle}>Internal identifier for this project.</p>
+              </div>
+
               {/* Migration Type */}
               <div>
                 <label style={labelStyle}>Migration Type *</label>
@@ -194,23 +202,38 @@ export default function AdminProjects() {
                 </select>
               </div>
 
-              {/* Cloud Source */}
+              {/* Source Platform */}
               <div>
-                <label style={labelStyle}>Cloud Source</label>
+                <label style={labelStyle}>Source Platform *</label>
                 <select
-                  value={form.cloudSource}
-                  onChange={e => setField('cloudSource', e.target.value)}
-                  disabled={!form.migrationType}
-                  style={{ ...inputStyle, opacity: form.migrationType ? 1 : 0.5 }}
+                  value={form.source}
+                  onChange={e => setField('source', e.target.value)}
+                  required
+                  style={inputStyle}
                 >
                   <option value="">— select source —</option>
-                  {cloudOptions.map(s => (
-                    <option key={s} value={s}>{s}</option>
+                  {PLATFORMS.map(p => (
+                    <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
-                {!form.migrationType && (
-                  <p style={helpStyle}>Select a migration type first.</p>
-                )}
+                <p style={helpStyle}>Platform messages are migrating FROM.</p>
+              </div>
+
+              {/* Destination Platform */}
+              <div>
+                <label style={labelStyle}>Destination Platform *</label>
+                <select
+                  value={form.destination}
+                  onChange={e => setField('destination', e.target.value)}
+                  required
+                  style={inputStyle}
+                >
+                  <option value="">— select destination —</option>
+                  {PLATFORMS.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <p style={helpStyle}>Platform messages are migrating TO.</p>
               </div>
 
               {/* Combination Type */}
@@ -219,9 +242,10 @@ export default function AdminProjects() {
                 <input
                   value={form.combinationType}
                   onChange={e => setField('combinationType', e.target.value)}
-                  placeholder="e.g. Slack → Teams"
+                  placeholder={form.source && form.destination ? `${form.source} → ${form.destination}` : 'e.g. Slack → Teams'}
                   style={inputStyle}
                 />
+                <p style={helpStyle}>Display label shown on the dashboard card. Leave blank to auto-derive from source → destination.</p>
               </div>
 
               {/* Teams Webhook URL */}
@@ -237,17 +261,69 @@ export default function AdminProjects() {
               </div>
 
               {/* Alert Email */}
-              <div>
-                <label style={labelStyle}>Alert Email</label>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelStyle}>Alert Email(s)</label>
                 <input
-                  type="email"
+                  type="text"
                   value={form.alertEmail}
                   onChange={e => setField('alertEmail', e.target.value)}
-                  placeholder="alerts@company.com"
+                  placeholder="alerts@company.com, manager@company.com, team@company.com"
                   style={inputStyle}
                 />
+                <p style={helpStyle}>Separate multiple addresses with a comma. All listed addresses will receive stall and conflict alerts for this project.</p>
               </div>
 
+            </div>
+
+            {/* MessageWorkSpace Configuration */}
+            <div style={{ marginTop: 22, borderTop: '1px solid #F3F4F6', paddingTop: 18 }}>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>MessageWorkSpace Column Config</span>
+                <p style={{ ...helpStyle, marginTop: 3 }}>
+                  Main table: <code style={{ fontSize: 11 }}>MessageWorkSpace</code>. Select which column sections to include for this project.
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                {/* DirectOrGroupMessage */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: '12px 14px', border: `1px solid ${form.showDms ? '#BFDBFE' : '#E5E7EB'}`, borderRadius: 8, background: form.showDms ? '#EFF6FF' : '#FAFAFA' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.showDms}
+                    onChange={e => setField('showDms', e.target.checked)}
+                    style={{ marginTop: 2, accentColor: '#2563eb', width: 15, height: 15, flexShrink: 0 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 2 }}>
+                      DirectOrGroupMessage — Include DM Records
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.5 }}>
+                      When <strong>enabled</strong>: rows where <code style={{ fontSize: 10 }}>DirectOrGroupMessage = True</code> are pulled and shown as the <em>Direct Messages</em> section.<br />
+                      When <strong>disabled</strong>: DMS section is hidden for this project.
+                    </div>
+                  </div>
+                </label>
+
+                {/* DmToSpace */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: '12px 14px', border: `1px solid ${form.showDmToSpace ? '#D1FAE5' : '#E5E7EB'}`, borderRadius: 8, background: form.showDmToSpace ? '#F0FDF4' : '#FAFAFA' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.showDmToSpace}
+                    onChange={e => setField('showDmToSpace', e.target.checked)}
+                    style={{ marginTop: 2, accentColor: '#16a34a', width: 15, height: 15, flexShrink: 0 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 2 }}>
+                      DmToSpace — Include DM → Space Migration
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.5 }}>
+                      When <strong>enabled</strong>: rows where <code style={{ fontSize: 10 }}>DmToSpace = True</code> are pulled and shown as a separate <em>DM → Space</em> section.<br />
+                      When <strong>disabled</strong>: DM → Space section is hidden for this project.
+                    </div>
+                  </div>
+                </label>
+
+              </div>
             </div>
 
             {/* Feedback */}
@@ -290,7 +366,7 @@ export default function AdminProjects() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#F9FAFB' }}>
-                    {['Project Name', 'DB ID', 'Type', 'Cloud Source', 'Combination', ''].map(h => (
+                    {['Project Name', 'DB ID', 'Type', 'Source → Destination', 'Sections', ''].map(h => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>
@@ -310,14 +386,22 @@ export default function AdminProjects() {
                         <TypeBadge type={p.migrationType} />
                       </td>
                       <td style={tdStyle}>
-                        {p.cloudSource
-                          ? <span style={{ fontSize: 12, color: '#374151' }}>{p.cloudSource}</span>
+                        {p.source || p.destination
+                          ? <span style={{ fontSize: 12, color: '#374151' }}>{p.source || '?'} → {p.destination || '?'}</span>
                           : <span style={{ color: '#d1d5db' }}>—</span>}
                       </td>
                       <td style={tdStyle}>
-                        {p.combinationType
-                          ? <span style={{ fontSize: 12, color: '#6b7280' }}>{p.combinationType}</span>
-                          : <span style={{ color: '#d1d5db' }}>—</span>}
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {p.showDms !== false && (
+                            <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: '#EFF6FF', color: '#1d4ed8', border: '1px solid #BFDBFE' }}>DMS</span>
+                          )}
+                          {p.showDmToSpace === true && (
+                            <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: '#F0FDF4', color: '#15803d', border: '1px solid #BBF7D0' }}>DM→Space</span>
+                          )}
+                          {p.showDms === false && p.showDmToSpace !== true && (
+                            <span style={{ fontSize: 10, color: '#9ca3af' }}>CH only</span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <button onClick={() => startEdit(p)} style={iconBtn('#2563eb')}>Edit</button>
@@ -332,7 +416,7 @@ export default function AdminProjects() {
         </div>
 
       </div>
-    </AdminLayout>
+    </div>
   );
 }
 

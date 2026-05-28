@@ -28,6 +28,18 @@ const SnapshotSchema = new mongoose.Schema({
   dmsConflictCount:     { type: Number, default: 0 },
   dmsNotProcessedCount: { type: Number, default: 0 },
 
+  dmToSpaceTotal:                 { type: Number, default: 0 },
+  dmToSpaceCompleted:             { type: Number, default: 0 },
+  dmToSpaceInProgress:            { type: Number, default: 0 },
+  dmToSpaceConflict:              { type: Number, default: 0 },
+  dmToSpaceNoMessage:             { type: Number, default: 0 },
+  dmToSpaceProcessedWithConflict: { type: Number, default: 0 },
+
+  dmToSpaceProcessedCount:    { type: Number, default: 0 },
+  dmToSpaceInProgressCount:   { type: Number, default: 0 },
+  dmToSpaceConflictCount:     { type: Number, default: 0 },
+  dmToSpaceNotProcessedCount: { type: Number, default: 0 },
+
   createdAt: { type: Date, default: Date.now }
 });
 

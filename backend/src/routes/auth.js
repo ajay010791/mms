@@ -81,7 +81,7 @@ router.get('/azure-config', async (req, res) => {
       return res.json({
         clientId:    doc.data.clientId,
         tenantId:    doc.data.tenantId,
-        redirectUri: doc.data.redirectUri || 'http://localhost:3000',
+        redirectUri: doc.data.redirectUri || 'http://localhost:5047',
         configured:  true
       });
     }
@@ -93,7 +93,7 @@ router.get('/azure-config', async (req, res) => {
       return res.json({
         clientId,
         tenantId,
-        redirectUri: process.env.AZURE_REDIRECT_URI || 'http://localhost:3000',
+        redirectUri: process.env.AZURE_REDIRECT_URI || 'http://localhost:5047',
         configured:  true
       });
     }

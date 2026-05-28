@@ -10,6 +10,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 import AdminAzure from './pages/admin/AdminAzure';
 import AdminMetabase from './pages/admin/AdminMetabase';
 import AdminSmtp from './pages/admin/AdminSmtp';
+import AdminProjects from './pages/admin/AdminProjects';
 import AdminWebhooks from './pages/admin/AdminWebhooks';
 import AdminAlertRules from './pages/admin/AdminAlertRules';
 import AdminHealth from './pages/admin/AdminHealth';
@@ -78,7 +79,7 @@ function AppRoutes() {
         <AdminRoute><AdminLayout /></AdminRoute>
       }>
         <Route index element={<Navigate to="/admin/projects" replace />} />
-        <Route path="projects"   element={<AdminWebhooks />} />
+        <Route path="projects"   element={<AdminProjects />} />
         <Route path="azure"      element={<AdminAzure />} />
         <Route path="metabase"   element={<AdminMetabase />} />
         <Route path="smtp"       element={<AdminSmtp />} />

@@ -76,7 +76,7 @@ router.post('/config/azure/direct', async (req, res) => {
           data: {
             clientId:    clientId.trim(),
             tenantId:    tenantId.trim(),
-            redirectUri: redirectUri?.trim() || 'http://localhost:3000'
+            redirectUri: redirectUri?.trim() || 'http://localhost:5047'
           },
           updatedAt: new Date()
         }
@@ -522,7 +522,7 @@ router.get('/config/smtp/oauth2/auth-url', async (req, res) => {
 
     const { clientId, tenantId } = azureDoc.data;
 
-    const origin      = req.headers.origin || 'http://localhost:3000';
+    const origin      = req.headers.origin || 'http://localhost:5047';
     const redirectUri = `${origin}/admin/smtp/callback`;
 
     // Generate PKCE pair
@@ -687,6 +687,130 @@ router.post('/config/smtp/oauth2/disconnect', async (req, res) => {
       }
     );
     res.json({ success: true, message: 'OAuth2 disconnected — reverted to password auth' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Switch to password auth ───────────────────────────────────────────────────
+
+router.post('/config/smtp/switch-to-password', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+
+    await db.collection('systemconfigs').findOneAndUpdate(
+      { key: 'smtp' },
+      {
+        $set:   { 'data.authType': 'password' },
+        $unset: {
+          'data.refreshToken':   '',
+          'data.accessToken':    '',
+          'data.tokenExpiry':    '',
+          'data.connectedAt':    '',
+          'data.connectedEmail': ''
+        }
+      }
+    );
+
+    res.json({ success: true, message: 'Switched to password authentication' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Microsoft Graph Email ─────────────────────────────────────────────────────
+
+router.get('/config/graph-email', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const db  = mongoose.connection.db;
+    const doc = await db.collection('systemconfigs').findOne({ key: 'graphEmail' });
+    if (!doc?.data) return res.json({ configured: false });
+    res.json({
+      configured:        !!(doc.data.clientId && doc.data.clientSecret && doc.data.tenantId),
+      clientId:          doc.data.clientId          || '',
+      tenantId:          doc.data.tenantId          || '',
+      senderEmail:       doc.data.senderEmail        || '',
+      defaultAlertEmail: doc.data.defaultAlertEmail  || '',
+      secretSaved:       !!doc.data.clientSecret
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/config/graph-email', async (req, res) => {
+  try {
+    const { clientId, clientSecret, tenantId, senderEmail, defaultAlertEmail } = req.body;
+    if (!clientId || !tenantId || !senderEmail) {
+      return res.status(400).json({ error: 'clientId, tenantId and senderEmail are required' });
+    }
+    const mongoose = require('mongoose');
+    const db  = mongoose.connection.db;
+
+    const existing = await db.collection('systemconfigs').findOne({ key: 'graphEmail' });
+    const update   = {
+      clientId:          clientId.trim(),
+      tenantId:          tenantId.trim(),
+      senderEmail:       senderEmail.trim(),
+      defaultAlertEmail: (defaultAlertEmail || '').trim(),
+      // Only overwrite secret if a new one is provided
+      clientSecret: clientSecret?.trim()
+        ? clientSecret.trim()
+        : (existing?.data?.clientSecret || '')
+    };
+
+    await db.collection('systemconfigs').findOneAndUpdate(
+      { key: 'graphEmail' },
+      { $set: { key: 'graphEmail', data: update, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    await logAction(req.user, 'save_graph_email', '/admin/config/graph-email');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[GraphEmail] Save error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/config/graph-email/test', async (req, res) => {
+  try {
+    const { to } = req.body;
+    const mongoose = require('mongoose');
+    const db  = mongoose.connection.db;
+    const doc = await db.collection('systemconfigs').findOne({ key: 'graphEmail' });
+
+    if (!doc?.data?.clientId || !doc?.data?.clientSecret || !doc?.data?.tenantId || !doc?.data?.senderEmail) {
+      return res.status(400).json({ error: 'Graph Email not fully configured. Save settings first.' });
+    }
+
+    const recipient = (to || doc.data.defaultAlertEmail || '').trim();
+    if (!recipient) return res.status(400).json({ error: 'Provide a recipient email address' });
+
+    const { sendViaGraph } = require('../services/emailService');
+    await sendViaGraph(
+      recipient,
+      '✅ Migration Monitor — Graph API Test',
+      'This is a test email sent via Microsoft Graph API from Migration Monitor.',
+      '<p>This is a <strong>test email</strong> sent via <strong>Microsoft Graph API</strong> from Migration Monitor.</p><p>If you received this, your Azure email configuration is working correctly.</p>',
+      doc.data
+    );
+
+    res.json({ success: true, message: `Test email sent to ${recipient} via Microsoft Graph API ✓` });
+  } catch (err) {
+    console.error('[GraphEmail] Test error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/config/graph-email', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    await db.collection('systemconfigs').deleteOne({ key: 'graphEmail' });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -967,7 +1091,7 @@ router.get('/projects/all', async (req, res) => {
 
 router.post('/projects', async (req, res) => {
   try {
-    const { projectName, metabaseDatabaseId, projectId, source, destination, teamsWebhookUrl, alertEmail } = req.body;
+    const { projectName, metabaseDatabaseId, projectId, source, destination, teamsWebhookUrl, alertEmail, showDms, showDmToSpace } = req.body;
 
     if (!projectName || !metabaseDatabaseId || !projectId || !source || !destination) {
       return res.status(400).json({ error: 'projectName, metabaseDatabaseId, projectId, source and destination are required' });
@@ -994,6 +1118,8 @@ router.post('/projects', async (req, res) => {
       migrationType:   'messaging',
       teamsWebhookUrl: teamsWebhookUrl || '',
       alertEmail:      alertEmail      || '',
+      showDms:         showDms         !== undefined ? Boolean(showDms)       : true,
+      showDmToSpace:   showDmToSpace   !== undefined ? Boolean(showDmToSpace) : false,
       isActive:        true,
       updatedAt:       new Date()
     });
@@ -1010,7 +1136,7 @@ router.post('/projects', async (req, res) => {
 
 router.put('/projects/:id', async (req, res) => {
   try {
-    const { projectName, metabaseDatabaseId, projectId, source, destination, teamsWebhookUrl, alertEmail, isActive } = req.body;
+    const { projectName, metabaseDatabaseId, projectId, source, destination, teamsWebhookUrl, alertEmail, isActive, showDms, showDmToSpace } = req.body;
 
     if (source && !PLATFORMS.includes(source)) {
       return res.status(400).json({ error: 'Invalid source platform' });
@@ -1038,6 +1164,8 @@ router.put('/projects/:id', async (req, res) => {
     if (teamsWebhookUrl    !== undefined) update.teamsWebhookUrl    = teamsWebhookUrl || '';
     if (alertEmail         !== undefined) update.alertEmail         = alertEmail      || '';
     if (isActive           !== undefined) update.isActive           = isActive;
+    if (showDms            !== undefined) update.showDms            = Boolean(showDms);
+    if (showDmToSpace      !== undefined) update.showDmToSpace      = Boolean(showDmToSpace);
 
     const project = await ProjectConfig.findByIdAndUpdate(req.params.id, update, { new: true });
 
@@ -1272,10 +1400,19 @@ router.post('/alerts/test', async (req, res) => {
     const db       = mongoose.connection.db;
     const smtpDoc  = await db.collection('systemconfigs').findOne({ key: 'smtp' });
 
-    const smtpConfigured = !!(smtpDoc?.data?.host && smtpDoc?.data?.password);
-    const defaultEmail   = smtpDoc?.data?.defaultAlertEmail || process.env.DEFAULT_ALERT_EMAIL;
-    const projectEmail   = (project.alertEmail || '').trim();
-    const alertEmail     = projectEmail || defaultEmail;
+    const graphDoc        = await db.collection('systemconfigs').findOne({ key: 'graphEmail' });
+    const graphConfigured = !!(graphDoc?.data?.clientId && graphDoc?.data?.clientSecret &&
+                               graphDoc?.data?.tenantId  && graphDoc?.data?.senderEmail);
+    const smtpConfigured  = !!(smtpDoc?.data?.host && smtpDoc?.data?.password);
+    const emailReady      = smtpConfigured || graphConfigured;
+    const defaultEmail    = smtpDoc?.data?.defaultAlertEmail ||
+                            graphDoc?.data?.defaultAlertEmail ||
+                            process.env.DEFAULT_ALERT_EMAIL;
+    const projectEmail = (project.alertEmail || '').trim();
+    // Support comma-separated emails — valid if at least one contains @
+    const hasValidProjectEmail = projectEmail &&
+      projectEmail.split(',').some(e => e.trim().includes('@'));
+    const alertEmail = hasValidProjectEmail ? projectEmail : defaultEmail;
     const isProjectEmail = !!(projectEmail);
     const webhookUrl     = (project.teamsWebhookUrl || '').trim();
 
@@ -1284,7 +1421,7 @@ router.post('/alerts/test', async (req, res) => {
     let teamsSent  = false;
     let teamsError = null;
 
-    if (smtpConfigured && alertEmail) {
+    if (emailReady && alertEmail) {
       try {
         await emailService.sendAlert(alertEmail, subject, textBody, htmlBody);
         emailSent = true;
@@ -1435,16 +1572,46 @@ router.post('/alerts/reset-cooldown', async (req, res) => {
 // ── Manual cron trigger ───────────────────────────────────────────────────────
 
 router.post('/alerts/trigger-now', async (req, res) => {
+  const logs = [];
+
+  const originalLog   = console.log;
+  const originalError = console.error;
+  const originalWarn  = console.warn;
+
+  const capture = (level, args) => {
+    const msg = args.map(a =>
+      typeof a === 'object'
+        ? JSON.stringify(a, null, 2)
+        : String(a)
+    ).join(' ');
+    logs.push({ level, msg });
+  };
+
+  console.log   = (...a) => { capture('log',   a); originalLog(...a);   };
+  console.error = (...a) => { capture('error', a); originalError(...a); };
+  console.warn  = (...a) => { capture('warn',  a); originalWarn(...a);  };
+
   try {
-    console.log('[ManualTrigger] Manually triggering check...');
-    await cronService.checkProjects();
+    const { checkProjects } = require('../services/cronService');
+    await checkProjects();
+
     res.json({
       success:   true,
-      message:   'Alert check triggered',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      logs
     });
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logs.push({ level: 'error', msg: 'FATAL: ' + err.message });
+    res.status(500).json({
+      success: false,
+      error:   err.message,
+      logs
+    });
+  } finally {
+    console.log   = originalLog;
+    console.error = originalError;
+    console.warn  = originalWarn;
   }
 });
 

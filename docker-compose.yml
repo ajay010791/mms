@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+
+  # ── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: migration-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - migration-net
+
+  # ── Node.js backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: migration-backend
+    restart: unless-stopped
+    env_file: .env.docker
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/migration-monitor
+      - NODE_ENV=production
+    depends_on:
+      - mongo
+    networks:
+      - migration-net
+
+  # ── React frontend + nginx reverse-proxy ──────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: migration-frontend
+    restart: unless-stopped
+    ports:
+      - "5047:80"
+    depends_on:
+      - backend
+    networks:
+      - migration-net
+
+networks:
+  migration-net:
+    driver: bridge
+
+volumes:
+  mongo_data:

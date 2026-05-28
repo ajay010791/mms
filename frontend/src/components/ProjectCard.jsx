@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import AlertBadge from './AlertBadge';
@@ -6,6 +6,7 @@ import { getTypeColor, getCloudBadgeColor } from '../utils/classifier';
 import api from '../utils/axios';
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
+
 
 function Badges({ project }) {
   const typeColor  = getTypeColor(project.migrationType);
@@ -125,6 +126,30 @@ function MessageBox({ bg, border, icon, iconColor, numColor, labelColor, label, 
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export default function ProjectCard({ project, token, layout = 'list', isHistorical = false, historicalTime = '', onRefresh }) {
+  const [timeline,        setTimeline]        = useState([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineOpen,    setTimelineOpen]    = useState(false);
+
+  const fetchTimeline = async () => {
+    try {
+      setTimelineLoading(true);
+      const res = await api.get(`/api/projects/timeline/${project.id}`);
+      setTimeline(res.data?.timeline || []);
+    } catch (err) {
+      console.error('[Timeline] Error:', err.message);
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
+  const handleTimelineToggle = async () => {
+    const newState = !timelineOpen;
+    setTimelineOpen(newState);
+    if (newState && timeline.length === 0) {
+      await fetchTimeline();
+    }
+  };
+
   if (!project) return null;
   const startedDate = project.createdAt ? format(new Date(project.createdAt), 'MMM d, yyyy') : '—';
   const isStalled   = project.diff?.isStalled || false;
@@ -229,12 +254,22 @@ export default function ProjectCard({ project, token, layout = 'list', isHistori
 
   // ─── DETAIL LAYOUT ───────────────────────────────────────────────────────────
   if (layout === 'detail') {
-    const ch  = project.channels || {};
-    const dms = project.dms      || {};
+    const ch   = project.channels  || {};
+    const dms  = project.dms       || {};
+    const dmts = project.dmToSpace || {};
+    const showDmsDetail       = project.config?.showDms       !== false;
+    const showDmToSpaceDetail = project.config?.showDmToSpace === true;
+    const diffData            = project.diff;
 
     const pct = (total, val) => total > 0 ? Math.round(((val || 0) / total) * 100) : 0;
 
-    const diffData   = project.diff;
+    const dmtsDiffTextDetail  = !diffData || !diffData.hasEnoughData
+      ? (diffData?.message ?? null)
+      : diffData.dmToSpaceMessage || null;
+    const dmtsDiffColorDetail = !diffData || !diffData.hasEnoughData
+      ? 'var(--color-text-tertiary)'
+      : (diffData.dmToSpaceDiff ?? 0) === 0 ? '#A32D2D' : '#3B6D11';
+
     const chDiffText = diffData?.channelMessage
       || (!diffData ? 'Waiting for snapshot…' : diffData.message);
     const chDiffColor = !diffData || !diffData.hasEnoughData
@@ -326,34 +361,164 @@ export default function ProjectCard({ project, token, layout = 'list', isHistori
             </div>
           </div>
 
-          {/* ── DIVIDER ── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 14px' }}>
-            <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
-            <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7F77DD', whiteSpace: 'nowrap' }}>Direct Messages</span>
-            <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
-          </div>
-
-          {/* ── DMS ── */}
-          <div>
-            <SectionLabel icon="ti-message-circle" text="DMS status" />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
-              <WorkspaceBox bg="#EEEDFE" border="#C4C0F7" icon="ti-stack-2" iconColor="#534AB7" numColor="#534AB7" labelColor="#26215C" label="Total" value={dms.total} barColor="#7F77DD" barPct={100} />
-              <WorkspaceBox bg="#EAF3DE" border="#C0DD97" icon="ti-circle-check" iconColor="#3B6D11" numColor="#3B6D11" labelColor="#27500A" label="Completed" value={dms.completed} barColor="#1D9E75" barPct={pct(dms.total, dms.completed)} />
-              <WorkspaceBox bg="#FDF4E7" border="#F5D89A" icon="ti-circle-check-filled" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="Proc. w/ Conflict" value={dms.processedWithConflict} barColor="#BA7517" barPct={pct(dms.total, dms.processedWithConflict)} />
-              <WorkspaceBox bg="#FCEBEB" border="#F7C1C1" icon="ti-alert-triangle" iconColor="#A32D2D" numColor="#A32D2D" labelColor="#791F1F" label="Conflict" value={dms.conflict} barColor="#E24B4A" barPct={pct(dms.total, dms.conflict)} />
-              <WorkspaceBox bg="#FAEEDA" border="#FAC775" icon="ti-loader" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="In Progress" value={dms.inProgress} barColor="#BA7517" barPct={pct(dms.total, dms.inProgress)} />
-              <WorkspaceBox bg="var(--color-background-secondary)" border="var(--color-border-tertiary)" icon="ti-message-off" iconColor="var(--color-text-tertiary)" numColor="var(--color-text-secondary)" labelColor="var(--color-text-secondary)" label="No Message" value={dms.noMessage} barColor="#888780" barPct={pct(dms.total, dms.noMessage)} />
+          {/* ── DMS (only if showDms) ── */}
+          {showDmsDetail && (<>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 14px' }}>
+              <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
+              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7F77DD', whiteSpace: 'nowrap' }}>Direct Messages</span>
+              <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
             </div>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <SectionLabel icon="ti-messages" text="DMS msg count" />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-              <MessageBox bg="#EAF3DE" border="#C0DD97" icon="ti-checks" iconColor="#3B6D11" numColor="#3B6D11" labelColor="#27500A" label="Processed" value={dms.processedCount} subText={dmsDiffText} subColor={dmsDiffColor} />
-              <MessageBox bg="#FAEEDA" border="#FAC775" icon="ti-loader" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="In Progress" value={dms.inProgressCount} subText="" subColor="" />
-              <MessageBox bg="#FCEBEB" border="#F7C1C1" icon="ti-alert-circle" iconColor="#A32D2D" numColor="#A32D2D" labelColor="#791F1F" label="Conflict" value={dms.conflictCount} subText={dms.conflictCount > 0 ? 'needs attention' : 'all clear'} subColor={dms.conflictCount > 0 ? '#A32D2D' : '#3B6D11'} />
-              <MessageBox bg="var(--color-background-secondary)" border="var(--color-border-tertiary)" icon="ti-clock-pause" iconColor="var(--color-text-tertiary)" numColor="var(--color-text-secondary)" labelColor="var(--color-text-secondary)" label="Not Processed" value={dms.notProcessedCount} subText="" subColor="" />
+            <div>
+              <SectionLabel icon="ti-message-circle" text="DMS status" />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+                <WorkspaceBox bg="#EEEDFE" border="#C4C0F7" icon="ti-stack-2" iconColor="#534AB7" numColor="#534AB7" labelColor="#26215C" label="Total" value={dms.total} barColor="#7F77DD" barPct={100} />
+                <WorkspaceBox bg="#EAF3DE" border="#C0DD97" icon="ti-circle-check" iconColor="#3B6D11" numColor="#3B6D11" labelColor="#27500A" label="Completed" value={dms.completed} barColor="#1D9E75" barPct={pct(dms.total, dms.completed)} />
+                <WorkspaceBox bg="#FDF4E7" border="#F5D89A" icon="ti-circle-check-filled" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="Proc. w/ Conflict" value={dms.processedWithConflict} barColor="#BA7517" barPct={pct(dms.total, dms.processedWithConflict)} />
+                <WorkspaceBox bg="#FCEBEB" border="#F7C1C1" icon="ti-alert-triangle" iconColor="#A32D2D" numColor="#A32D2D" labelColor="#791F1F" label="Conflict" value={dms.conflict} barColor="#E24B4A" barPct={pct(dms.total, dms.conflict)} />
+                <WorkspaceBox bg="#FAEEDA" border="#FAC775" icon="ti-loader" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="In Progress" value={dms.inProgress} barColor="#BA7517" barPct={pct(dms.total, dms.inProgress)} />
+                <WorkspaceBox bg="var(--color-background-secondary)" border="var(--color-border-tertiary)" icon="ti-message-off" iconColor="var(--color-text-tertiary)" numColor="var(--color-text-secondary)" labelColor="var(--color-text-secondary)" label="No Message" value={dms.noMessage} barColor="#888780" barPct={pct(dms.total, dms.noMessage)} />
+              </div>
             </div>
+            <div style={{ marginTop: 14 }}>
+              <SectionLabel icon="ti-messages" text="DMS msg count" />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                <MessageBox bg="#EAF3DE" border="#C0DD97" icon="ti-checks" iconColor="#3B6D11" numColor="#3B6D11" labelColor="#27500A" label="Processed" value={dms.processedCount} subText={dmsDiffText} subColor={dmsDiffColor} />
+                <MessageBox bg="#FAEEDA" border="#FAC775" icon="ti-loader" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="In Progress" value={dms.inProgressCount} subText="" subColor="" />
+                <MessageBox bg="#FCEBEB" border="#F7C1C1" icon="ti-alert-circle" iconColor="#A32D2D" numColor="#A32D2D" labelColor="#791F1F" label="Conflict" value={dms.conflictCount} subText={dms.conflictCount > 0 ? 'needs attention' : 'all clear'} subColor={dms.conflictCount > 0 ? '#A32D2D' : '#3B6D11'} />
+                <MessageBox bg="var(--color-background-secondary)" border="var(--color-border-tertiary)" icon="ti-clock-pause" iconColor="var(--color-text-tertiary)" numColor="var(--color-text-secondary)" labelColor="var(--color-text-secondary)" label="Not Processed" value={dms.notProcessedCount} subText="" subColor="" />
+              </div>
+            </div>
+          </>)}
+
+          {/* ── DM → Space (only if showDmToSpace) ── */}
+          {showDmToSpaceDetail && (<>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 14px' }}>
+              <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
+              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#0D9488', whiteSpace: 'nowrap' }}>DM → Space Migration</span>
+              <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
+            </div>
+            <div>
+              <SectionLabel icon="ti-arrows-right-left" text="DM → Space status" />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+                <WorkspaceBox bg="#CCFBF1" border="#99F6E4" icon="ti-stack-2" iconColor="#0D9488" numColor="#0D9488" labelColor="#0F766E" label="Total" value={dmts.total} barColor="#0D9488" barPct={100} />
+                <WorkspaceBox bg="#EAF3DE" border="#C0DD97" icon="ti-circle-check" iconColor="#3B6D11" numColor="#3B6D11" labelColor="#27500A" label="Completed" value={dmts.completed} barColor="#1D9E75" barPct={pct(dmts.total, dmts.completed)} />
+                <WorkspaceBox bg="#FDF4E7" border="#F5D89A" icon="ti-circle-check-filled" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="Proc. w/ Conflict" value={dmts.processedWithConflict} barColor="#BA7517" barPct={pct(dmts.total, dmts.processedWithConflict)} />
+                <WorkspaceBox bg="#FCEBEB" border="#F7C1C1" icon="ti-alert-triangle" iconColor="#A32D2D" numColor="#A32D2D" labelColor="#791F1F" label="Conflict" value={dmts.conflict} barColor="#E24B4A" barPct={pct(dmts.total, dmts.conflict)} />
+                <WorkspaceBox bg="#FAEEDA" border="#FAC775" icon="ti-loader" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="In Progress" value={dmts.inProgress} barColor="#BA7517" barPct={pct(dmts.total, dmts.inProgress)} />
+                <WorkspaceBox bg="var(--color-background-secondary)" border="var(--color-border-tertiary)" icon="ti-message-off" iconColor="var(--color-text-tertiary)" numColor="var(--color-text-secondary)" labelColor="var(--color-text-secondary)" label="No Message" value={dmts.noMessage} barColor="#888780" barPct={pct(dmts.total, dmts.noMessage)} />
+              </div>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <SectionLabel icon="ti-messages" text="DM → Space msg count" />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                <MessageBox bg="#CCFBF1" border="#99F6E4" icon="ti-checks" iconColor="#0D9488" numColor="#0D9488" labelColor="#0F766E" label="Processed" value={dmts.processedCount} subText={dmtsDiffTextDetail} subColor={dmtsDiffColorDetail} />
+                <MessageBox bg="#FAEEDA" border="#FAC775" icon="ti-loader" iconColor="#854F0B" numColor="#854F0B" labelColor="#633806" label="In Progress" value={dmts.inProgressCount} subText="" subColor="" />
+                <MessageBox bg="#FCEBEB" border="#F7C1C1" icon="ti-alert-circle" iconColor="#A32D2D" numColor="#A32D2D" labelColor="#791F1F" label="Conflict" value={dmts.conflictCount} subText={dmts.conflictCount > 0 ? 'needs attention' : 'all clear'} subColor={dmts.conflictCount > 0 ? '#A32D2D' : '#3B6D11'} />
+                <MessageBox bg="var(--color-background-secondary)" border="var(--color-border-tertiary)" icon="ti-clock-pause" iconColor="var(--color-text-tertiary)" numColor="var(--color-text-secondary)" labelColor="var(--color-text-secondary)" label="Not Processed" value={dmts.notProcessedCount} subText="" subColor="" />
+              </div>
+            </div>
+          </>)}
+
+          {/* Migration Progress Timeline — Collapsible */}
+          <div style={{ marginTop: 14, border: '0.5px solid var(--color-border-tertiary)', borderRadius: 10, overflow: 'hidden' }}>
+
+            {/* Header — always visible */}
+            <div
+              onClick={handleTimelineToggle}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', background: timelineOpen ? 'var(--color-background-secondary)' : 'var(--color-background-primary)', cursor: 'pointer', userSelect: 'none', borderBottom: timelineOpen ? '0.5px solid var(--color-border-tertiary)' : 'none', transition: 'background 0.15s' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <i className="ti ti-chart-line" style={{ fontSize: 13, color: '#185FA5' }} />
+                <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)' }}>Migration Progress</span>
+                {!timelineOpen && timeline.length > 0 && (() => {
+                  const tenMin = timeline.find(t => t.window === '10 min' && t.available);
+                  if (!tenMin) return null;
+                  return (
+                    <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: tenMin.isStalled ? '#FCEBEB' : '#EAF3DE', color: tenMin.isStalled ? '#791F1F' : '#27500A', border: `0.5px solid ${tenMin.isStalled ? '#F7C1C1' : '#C0DD97'}` }}>
+                      {tenMin.isStalled ? '⚠ No change (10min)' : `+${tenMin.totalDiff.toLocaleString()} (10min)`}
+                    </span>
+                  );
+                })()}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {timelineOpen && (
+                  <button
+                    onClick={e => { e.stopPropagation(); fetchTimeline(); }}
+                    disabled={timelineLoading}
+                    title="Refresh timeline"
+                    style={{ background: 'none', border: 'none', cursor: timelineLoading ? 'not-allowed' : 'pointer', color: 'var(--color-text-tertiary)', padding: 0, display: 'flex', alignItems: 'center' }}
+                  >
+                    <i className={`ti ${timelineLoading ? 'ti-loader' : 'ti-refresh'}`} style={{ fontSize: 12, animation: timelineLoading ? 'spin 0.8s linear infinite' : 'none' }} />
+                  </button>
+                )}
+                <i className={`ti ti-chevron-${timelineOpen ? 'up' : 'down'}`} style={{ fontSize: 13, color: 'var(--color-text-tertiary)', transition: 'transform 0.2s' }} />
+              </div>
+            </div>
+
+            {/* Body — only when open */}
+            {timelineOpen && (
+              <div style={{ padding: '12px 14px', background: 'var(--color-background-secondary)' }}>
+                {timelineLoading && timeline.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: 16, fontSize: 12, color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <i className="ti ti-loader" style={{ fontSize: 14, animation: 'spin 0.8s linear infinite' }} />
+                    Loading timeline...
+                  </div>
+                )}
+                {!timelineLoading && timeline.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: 12, fontSize: 11, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+                    No snapshot data yet. Check back after the next cron run.
+                  </div>
+                )}
+                {timeline.length > 0 && (
+                  <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {timeline.map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', background: item.available && item.isStalled ? '#FCEBEB' : 'var(--color-background-primary)', border: `0.5px solid ${item.available && item.isStalled ? '#F7C1C1' : 'var(--color-border-tertiary)'}`, borderRadius: 7 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 58 }}>
+                            <i className="ti ti-clock" style={{ fontSize: 11, color: item.available ? (item.isStalled ? '#A32D2D' : '#185FA5') : 'var(--color-text-tertiary)' }} />
+                            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.window}</span>
+                          </div>
+                          {item.available ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, justifyContent: 'flex-end' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 500 }}>CH</span>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: item.channelDiff > 0 ? '#3B6D11' : '#A32D2D' }}>
+                                  {item.channelDiff > 0 ? `+${item.channelDiff.toLocaleString()}` : '—'}
+                                </span>
+                              </div>
+                              {showDmsDetail && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                  <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 500 }}>DMS</span>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: item.dmsDiff > 0 ? '#3B6D11' : '#A32D2D' }}>
+                                    {item.dmsDiff > 0 ? `+${item.dmsDiff.toLocaleString()}` : '—'}
+                                  </span>
+                                </div>
+                              )}
+                              {showDmToSpaceDetail && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                  <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 500 }}>DTS</span>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: (item.dmToSpaceDiff || 0) > 0 ? '#3B6D11' : '#A32D2D' }}>
+                                    {(item.dmToSpaceDiff || 0) > 0 ? `+${item.dmToSpaceDiff.toLocaleString()}` : '—'}
+                                  </span>
+                                </div>
+                              )}
+                              <div style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10, background: item.isStalled ? '#FCEBEB' : '#EAF3DE', color: item.isStalled ? '#791F1F' : '#27500A', border: `0.5px solid ${item.isStalled ? '#F7C1C1' : '#C0DD97'}` }}>
+                                {item.isStalled ? '⚠ No change' : `+${item.totalDiff.toLocaleString()} msgs`}
+                              </div>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>Not enough data yet</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', marginTop: 8, textAlign: 'center' }}>
+                      CH = Channel &nbsp;|&nbsp; DMS = Direct Messages &nbsp;|&nbsp; DTS = DM → Space &nbsp;|&nbsp; Refreshes every 10 min
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
         </div>
@@ -363,9 +528,20 @@ export default function ProjectCard({ project, token, layout = 'list', isHistori
 
   // ─── LIST LAYOUT ─────────────────────────────────────────────────────────────
 
-  const ch       = project.channels || {};
-  const dms      = project.dms      || {};
+  const ch         = project.channels  || {};
+  const dms        = project.dms       || {};
+  const dmts       = project.dmToSpace || {};
+  const showDms       = project.config?.showDms       !== false;
+  const showDmToSpace = project.config?.showDmToSpace === true;
+  const gridCols      = 2 + (showDms ? 2 : 0) + (showDmToSpace ? 2 : 0);
   const diffData = project.diff;
+
+  const dmtsDiffText  = !diffData || !diffData.hasEnoughData
+    ? (diffData?.message ?? null)
+    : diffData.dmToSpaceMessage || null;
+  const dmtsDiffColor = !diffData || !diffData.hasEnoughData
+    ? '#9ca3af'
+    : (diffData.dmToSpaceDiff ?? 0) === 0 ? '#E24B4A' : '#3B6D11';
   const chDiffText  = !diffData || !diffData.hasEnoughData
     ? (diffData?.message ?? null)
     : diffData.channelMessage || null;
@@ -415,8 +591,8 @@ export default function ProjectCard({ project, token, layout = 'list', isHistori
         </div>
       </div>
 
-      {/* BODY: 4 RAG sections */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '12px 16px' }}>
+      {/* BODY: dynamic RAG sections */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gap: 10, padding: '12px 16px' }}>
 
         {/* SECTION 1 — Channel Status */}
         <RagSection borderColor="#378ADD" titleColor="#185FA5" title="Channel Status">
@@ -436,25 +612,150 @@ export default function ProjectCard({ project, token, layout = 'list', isHistori
           <RagRow dot="#6b7280" label="Not Processed" value={ch.notProcessedCount} />
         </RagSection>
 
-        {/* SECTION 3 — DMS Status */}
-        <RagSection borderColor="#7F77DD" titleColor="#534AB7" title="DMS Status">
-          <RagRow dot="#7F77DD" label="Total"            value={dms.total}                />
-          <RagRow dot="#16a34a" label="Completed"         value={dms.completed}            />
-          <RagRow dot="#d97706" label="Proc. w/ Conflict" value={dms.processedWithConflict} />
-          <RagRow dot="#dc2626" label="Conflict"          value={dms.conflict}             />
-          <RagRow dot="#d97706" label="In Progress"       value={dms.inProgress}           />
-          <RagRow dot="#6b7280" label="No Message"        value={dms.noMessage}            />
-        </RagSection>
+        {/* SECTION 3 & 4 — DMS (only if showDms) */}
+        {showDms && (
+          <RagSection borderColor="#7F77DD" titleColor="#534AB7" title="DMS Status">
+            <RagRow dot="#7F77DD" label="Total"            value={dms.total}                />
+            <RagRow dot="#16a34a" label="Completed"         value={dms.completed}            />
+            <RagRow dot="#d97706" label="Proc. w/ Conflict" value={dms.processedWithConflict} />
+            <RagRow dot="#dc2626" label="Conflict"          value={dms.conflict}             />
+            <RagRow dot="#d97706" label="In Progress"       value={dms.inProgress}           />
+            <RagRow dot="#6b7280" label="No Message"        value={dms.noMessage}            />
+          </RagSection>
+        )}
+        {showDms && (
+          <RagSection borderColor="#BA7517" titleColor="#854F0B" title="DMS Msg Count">
+            <RagRow dot="#16a34a" label="Processed"    value={dms.processedCount}    large subText={dmsDiffText} subColor={dmsDiffColor} />
+            <RagRow dot="#d97706" label="In Progress"  value={dms.inProgressCount}   />
+            <RagRow dot="#dc2626" label="Conflict"     value={dms.conflictCount}     />
+            <RagRow dot="#6b7280" label="Not Processed" value={dms.notProcessedCount} />
+          </RagSection>
+        )}
 
-        {/* SECTION 4 — DMS Msg Count */}
-        <RagSection borderColor="#BA7517" titleColor="#854F0B" title="DMS Msg Count">
-          <RagRow dot="#16a34a" label="Processed"    value={dms.processedCount}    large subText={dmsDiffText} subColor={dmsDiffColor} />
-          <RagRow dot="#d97706" label="In Progress"  value={dms.inProgressCount}   />
-          <RagRow dot="#dc2626" label="Conflict"     value={dms.conflictCount}     />
-          <RagRow dot="#6b7280" label="Not Processed" value={dms.notProcessedCount} />
-        </RagSection>
+        {/* SECTION 5 & 6 — DM → Space (only if showDmToSpace) */}
+        {showDmToSpace && (
+          <RagSection borderColor="#0D9488" titleColor="#0F766E" title="DM → Space Status">
+            <RagRow dot="#0D9488" label="Total"            value={dmts.total}                />
+            <RagRow dot="#16a34a" label="Completed"         value={dmts.completed}            />
+            <RagRow dot="#d97706" label="Proc. w/ Conflict" value={dmts.processedWithConflict} />
+            <RagRow dot="#dc2626" label="Conflict"          value={dmts.conflict}             />
+            <RagRow dot="#d97706" label="In Progress"       value={dmts.inProgress}           />
+            <RagRow dot="#6b7280" label="No Message"        value={dmts.noMessage}            />
+          </RagSection>
+        )}
+        {showDmToSpace && (
+          <RagSection borderColor="#0D9488" titleColor="#0F766E" title="DM → Space Msgs">
+            <RagRow dot="#16a34a" label="Processed"     value={dmts.processedCount}    large subText={dmtsDiffText} subColor={dmtsDiffColor} />
+            <RagRow dot="#d97706" label="In Progress"   value={dmts.inProgressCount}   />
+            <RagRow dot="#dc2626" label="Conflict"      value={dmts.conflictCount} />
+            <RagRow dot="#6b7280" label="Not Processed" value={dmts.notProcessedCount} />
+          </RagSection>
+        )}
 
       </div>
+
+      {/* Migration Progress Timeline — Collapsible */}
+      <div style={{ margin: '0 16px 14px', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 10, overflow: 'hidden' }}>
+
+        {/* Header — always visible */}
+        <div
+          onClick={handleTimelineToggle}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', background: timelineOpen ? 'var(--color-background-secondary)' : 'var(--color-background-primary)', cursor: 'pointer', userSelect: 'none', borderBottom: timelineOpen ? '0.5px solid var(--color-border-tertiary)' : 'none', transition: 'background 0.15s' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <i className="ti ti-chart-line" style={{ fontSize: 13, color: '#185FA5' }} />
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)' }}>Migration Progress</span>
+            {!timelineOpen && timeline.length > 0 && (() => {
+              const tenMin = timeline.find(t => t.window === '10 min' && t.available);
+              if (!tenMin) return null;
+              return (
+                <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: tenMin.isStalled ? '#FCEBEB' : '#EAF3DE', color: tenMin.isStalled ? '#791F1F' : '#27500A', border: `0.5px solid ${tenMin.isStalled ? '#F7C1C1' : '#C0DD97'}` }}>
+                  {tenMin.isStalled ? '⚠ No change (10min)' : `+${tenMin.totalDiff.toLocaleString()} (10min)`}
+                </span>
+              );
+            })()}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {timelineOpen && (
+              <button
+                onClick={e => { e.stopPropagation(); fetchTimeline(); }}
+                disabled={timelineLoading}
+                title="Refresh timeline"
+                style={{ background: 'none', border: 'none', cursor: timelineLoading ? 'not-allowed' : 'pointer', color: 'var(--color-text-tertiary)', padding: 0, display: 'flex', alignItems: 'center' }}
+              >
+                <i className={`ti ${timelineLoading ? 'ti-loader' : 'ti-refresh'}`} style={{ fontSize: 12, animation: timelineLoading ? 'spin 0.8s linear infinite' : 'none' }} />
+              </button>
+            )}
+            <i className={`ti ti-chevron-${timelineOpen ? 'up' : 'down'}`} style={{ fontSize: 13, color: 'var(--color-text-tertiary)', transition: 'transform 0.2s' }} />
+          </div>
+        </div>
+
+        {/* Body — only when open */}
+        {timelineOpen && (
+          <div style={{ padding: '12px 14px', background: 'var(--color-background-secondary)' }}>
+            {timelineLoading && timeline.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 16, fontSize: 12, color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <i className="ti ti-loader" style={{ fontSize: 14, animation: 'spin 0.8s linear infinite' }} />
+                Loading timeline...
+              </div>
+            )}
+            {!timelineLoading && timeline.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 12, fontSize: 11, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+                No snapshot data yet. Check back after the next cron run.
+              </div>
+            )}
+            {timeline.length > 0 && (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {timeline.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', background: item.available && item.isStalled ? '#FCEBEB' : 'var(--color-background-primary)', border: `0.5px solid ${item.available && item.isStalled ? '#F7C1C1' : 'var(--color-border-tertiary)'}`, borderRadius: 7 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 58 }}>
+                        <i className="ti ti-clock" style={{ fontSize: 11, color: item.available ? (item.isStalled ? '#A32D2D' : '#185FA5') : 'var(--color-text-tertiary)' }} />
+                        <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.window}</span>
+                      </div>
+                      {item.available ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, justifyContent: 'flex-end' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 500 }}>CH</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: item.channelDiff > 0 ? '#3B6D11' : '#A32D2D' }}>
+                              {item.channelDiff > 0 ? `+${item.channelDiff.toLocaleString()}` : '—'}
+                            </span>
+                          </div>
+                          {showDms && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                              <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 500 }}>DMS</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: item.dmsDiff > 0 ? '#3B6D11' : '#A32D2D' }}>
+                                {item.dmsDiff > 0 ? `+${item.dmsDiff.toLocaleString()}` : '—'}
+                              </span>
+                            </div>
+                          )}
+                          {showDmToSpace && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                              <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 500 }}>DTS</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: (item.dmToSpaceDiff || 0) > 0 ? '#3B6D11' : '#A32D2D' }}>
+                                {(item.dmToSpaceDiff || 0) > 0 ? `+${item.dmToSpaceDiff.toLocaleString()}` : '—'}
+                              </span>
+                            </div>
+                          )}
+                          <div style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10, background: item.isStalled ? '#FCEBEB' : '#EAF3DE', color: item.isStalled ? '#791F1F' : '#27500A', border: `0.5px solid ${item.isStalled ? '#F7C1C1' : '#C0DD97'}` }}>
+                            {item.isStalled ? '⚠ No change' : `+${item.totalDiff.toLocaleString()} msgs`}
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>Not enough data yet</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', marginTop: 8, textAlign: 'center' }}>
+                  CH = Channel &nbsp;|&nbsp; DMS = Direct Messages &nbsp;|&nbsp; DTS = DM → Space &nbsp;|&nbsp; Refreshes every 10 min
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

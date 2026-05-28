@@ -42,6 +42,14 @@ const ProjectConfigSchema = new mongoose.Schema({
     default: '',
     trim: true
   },
+  showDms: {
+    type: Boolean,
+    default: true
+  },
+  showDmToSpace: {
+    type: Boolean,
+    default: false
+  },
   isActive: {
     type: Boolean,
     default: true

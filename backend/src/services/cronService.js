@@ -673,9 +673,17 @@ const sendAlerts = async (project, subject, textBody, htmlBody, teamsPayload) =>
   const projectEmail = freshProject?.alertEmail?.toString().trim() || '';
   const defaultEmail = smtpDoc?.data?.defaultAlertEmail?.toString().trim() || '';
 
-  const alertEmail = (projectEmail && projectEmail.includes('@'))
-    ? projectEmail
-    : defaultEmail;
+  // Support comma-separated emails — valid if at least one address contains @
+  const hasValidProjectEmail = projectEmail &&
+    projectEmail.split(',').some(e => e.trim().includes('@'));
+
+  const alertEmail = hasValidProjectEmail ? projectEmail : defaultEmail;
+
+  // Check if Graph API email is configured (can send without SMTP)
+  const graphDoc = await db.collection('systemconfigs').findOne({ key: 'graphEmail' });
+  const graphConfigured = !!(graphDoc?.data?.clientId && graphDoc?.data?.clientSecret &&
+                             graphDoc?.data?.tenantId  && graphDoc?.data?.senderEmail);
+  const emailServiceReady = !!(smtpDoc?.data?.host) || graphConfigured;
 
   console.log('[Alert] Config:', {
     projectEmail: projectEmail  || 'NOT SET',
@@ -700,8 +708,8 @@ const sendAlerts = async (project, subject, textBody, htmlBody, teamsPayload) =>
       '[Alert] ✗ NO EMAIL — set in Admin → Projects ' +
       'or Admin → SMTP → Default Alert Email'
     );
-  } else if (!smtpDoc?.data?.host) {
-    console.error('[Alert] ✗ SMTP not configured');
+  } else if (!emailServiceReady) {
+    console.error('[Alert] ✗ No email service configured (set up SMTP or Microsoft Graph API in Admin)');
   } else {
     console.log(`[Alert] Sending email to: ${alertEmail}`);
     try {
