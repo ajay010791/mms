@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\ajays\\\\Documents\\\\migration-monitoring\\\\migration-monitor\\\\frontend\\\\src\" -Recurse -Filter \"*Dashboard*\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(npm install *)"
+    ]
+  }
+}

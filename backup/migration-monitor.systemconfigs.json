@@ -1,0 +1,106 @@
+[{
+  "_id": {
+    "$oid": "6a14db9a5ebf23582fb56f32"
+  },
+  "key": "metabase",
+  "__v": 0,
+  "encryptedValue": "a37be77aa2411c4e20741677:f77e9733354a60b12a7a1643e33cfbe1:3d0704e39ab88acbd1d767761fbca0d7c03cc218d593e164f7e3d3c97d709508f9589e7450853cd276e81d67656a2f055dafea69a0608ae1b4fb72c48f84dece42707c9cf1c578b0301698a1fa4bea1038dff0704e943ac352cfcceb0dad5b8f858aa3",
+  "updatedAt": {
+    "$date": "2026-05-26T13:32:37.207Z"
+  },
+  "updatedBy": "devadmin"
+},
+{
+  "_id": {
+    "$oid": "6a14dbf75ebf23582fb56f33"
+  },
+  "key": "azure",
+  "__v": 0,
+  "updatedAt": {
+    "$date": "2026-05-27T08:35:42.186Z"
+  },
+  "updatedBy": "admin",
+  "data": {
+    "clientId": "15527fb6-bc42-43dc-b847-8f4b9549c725",
+    "tenantId": "66d8848d-26b6-4147-8124-127624d7b3a6",
+    "redirectUri": "http://localhost:3000"
+  },
+  "encryptedData": "a72e8f8ad00f16af91e26e37:30089530d6ede7e2cb1cfb1ef3838723:668d30d22d845d21bb3c1d915bcb19151cbd992a297cc8b39fe698a307059200698a9d12178079a44d2b8dccba739e9fd77106fec15a33d0bc6dd2"
+},
+{
+  "_id": {
+    "$oid": "6a15b397a4b003c76832b1d5"
+  },
+  "key": "devAdmin",
+  "data": {
+    "username": "admin"
+  },
+  "encryptedData": "27caaafbd8cfaf44c6351814:aed227ec707d2cdfdc7e106db9cb258d:1442e6a235416b2555a9c86f9157dc89373c43567cbfc4191914edb277ccea5b6469d65729f7ab2ecc278fc7a4a10b539e7b7a464dfdcbc21032590eb1411c359589c1125cb33ee5fe8513eb6c3d3a",
+  "updatedAt": {
+    "$date": "2026-05-26T15:29:05.531Z"
+  },
+  "__v": 0,
+  "updatedBy": "devadmin"
+},
+{
+  "_id": {
+    "$oid": "6a15c0ce5ebf23582fb56f35"
+  },
+  "key": "smtp",
+  "__v": 0,
+  "data": {
+    "host": "smtp.office365.com",
+    "port": 587,
+    "username": "ajay.singh@cloudfuze.com",
+    "password": null,
+    "fromName": "tharun.pothi@cloudfuze.com",
+    "defaultAlertEmail": "ajay.singh@cloudfuze.com",
+    "authType": "oauth2",
+    "clientId": "15527fb6-bc42-43dc-b847-8f4b9549c725",
+    "tenantId": "66d8848d-26b6-4147-8124-127624d7b3a6",
+    "refreshToken": "1.AScAjYTYZrYmR0GBJBJ2JNezprZ_UhVCvNxDuEePS5VJxyXhAS0nAA.BQABAwEAAAADAOz_BQD0_0V2b1N0c0FydGlmYWN0cwIAAAAAALh6LdF7QTAmmYQTisT6aPeHRZ4tdIRctZ5QF2IkjB_aaz3E3A4pfH1JL22kbwFevTvdWm4_HbEbXx2Y__bIPPAy0mzOWN6JPYyoEcrYSzN5W1htAWWTDsAxFIxAatRgUF9kEMeGpceydE3al8-84v75Y6CQRQbb_QjxKaPyd9gHMDjwHGeYWsnHUitn28jnRaBBRVxD1yzfcRbvrV5IHhzDtK91eat-Mp8fNiGq40Ut12p0I9CBJIzha1RTD99K03AAeWfjUjEmMaAZm3N547RrW2M0eCUeCx8bVvMlwt3Qaxe3vcwJw40ie7NWLCHgJSxjwRLzAvXQDn54jRaHNr4kWL0IzDC1KHeleuYwdagJ-dk_XNbye8ZgFc_bOUVnTrsJrjsqxR2jFmSAH4fHPkiC33C3zVnGjGPWPBA1yD_mYDGWkRA5rlZ_DLoZeH-ARP-ItYsP5dvD7uZo3LKnG3QxGHWT4gVsl3x03_LpsTiafI0iMEU6ae3jGdX2R5-0AQSMTCgz7I8On-4Jd21KY7LZNcPlmVkkzu-SYcpQUC4NmiffEJEt7OhbMPcFvKkQWrCfuLvxqQGD4BS98mUNu893XvuzkMh0FRyhSCWofarZxt5F0ALF49UcWqK3b95dA48xTrYV4FcmvuYVyFKc1AmvoIAgFKc8-0Ala1pUt-U9p41O2PRDJo-GTXyHp-XjCZWGykoUk6x0GMKK_BP6d6jmBMhzJ40uUUr38qnBvJp6BE3wZy6t2Pye06dkRSGroBg5V7fzeSLRKt-MTd0mcNCV64kAl54RME9qHUO3CMog98yrmAdOb9EkCwHUR1c7uXAFl2S-wFjcyoPFoTSL78Huiq40Psj4LRFVi0Ys-NAdN3g5gt9YYhQsUM6lgyEmKzReRNXIC1ZDn2xPiV3uiJua3XHWQsScSDKYaGCIGK_VLgQErxkDFfOnjLpKJ3Ewbk1ffN6idRnFuj0Y90wUDzInVL147_fgRy6ZVqt_UfPTSba1qiPLFhP8_5LiieklievpjM6kpV9G6_lmvmOpPjE7H0e4IEEKvK-Xs-2YHANQwg7yM_BVSz-aQgUDRFtKBAosYXK5htTvuLRpAAPcAaLUkWlncr0-cYDVar5yTbLz0d7mwu2oD2j7J5Ovq1M96FtpY1j8NFL4-9VFOm05TkshdA_atHIvfY6TD11z6xJorg-MI65IG1B-GwiNmTYzQ-GjLdWwXREjjWfZ9b7oM9OFK00We_EdLGH5tIEa9Aorrai3o4YAG3Nrt6eRdYJuCDf9SMolpBbSsJhy9AmotMSjoiGg4yW4jumI3sl_p6PUtel-Xdid2feVfm7RpuCWF_gnC3mhZ1j-KCvukLjrQmL9JJudC2zgjKL0_2Owl-Xk2iEMuwQ2oaJbK_O1lc-7YLeb6jR8UwgxAdmy_NaUjcs_tyc",
+    "accessToken": "eyJ0eXAiOiJKV1QiLCJub25jZSI6ImtYaElkeERyaXhZNkV1cUxWbWd0OC16VGhqRl93MVJQX3hEdEh4VmREbjAiLCJhbGciOiJSUzI1NiIsIng1dCI6Ilh0LW83aERicHVwQXotWlBtNkh4Q0ZXUzNjSSIsImtpZCI6Ilh0LW83aERicHVwQXotWlBtNkh4Q0ZXUzNjSSJ9.eyJhdWQiOiJodHRwczovL291dGxvb2sub2ZmaWNlMzY1LmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzY2ZDg4NDhkLTI2YjYtNDE0Ny04MTI0LTEyNzYyNGQ3YjNhNi8iLCJpYXQiOjE3Nzk5MjM4MDgsIm5iZiI6MTc3OTkyMzgwOCwiZXhwIjoxNzc5OTI5NDYxLCJhY2N0IjowLCJhY3IiOiIxIiwiYWlvIjoiQVpRQWEvOGNBQUFBTXlHUzVIdW5RVWZzUDRTTVpscUlRc2lueHREbGdiMW9NZEMwYy9TSldHWVBacGI5a2ZOdkc1bjF4aFJYWWF1TWREUGo2cDR0RG52QUhlWjNhVUpKTTJUM1lhNzNqcTRsYysva2o2NFhYdFFMSkgrNy9OZmZZUFRyRVYzbkdHdjhFNHBIRzBXQTVqdE5oeDNuT3lOYWVMdnVwSlU5aXVoSnFibkJYRHlXcjVwcHdockdOemVLWnRYdWl6YXZ3TWY1IiwiYW1yIjpbInB3ZCIsIm1mYSJdLCJhcHBfZGlzcGxheW5hbWUiOiJNZXRhYmFzZS1NYWlsZXIiLCJhcHBpZCI6IjE1NTI3ZmI2LWJjNDItNDNkYy1iODQ3LThmNGI5NTQ5YzcyNSIsImFwcGlkYWNyIjoiMCIsImVuZnBvbGlkcyI6W10sImZhbWlseV9uYW1lIjoiU2luZ2giLCJnaXZlbl9uYW1lIjoiQWpheSIsImlkdHlwIjoidXNlciIsImlwYWRkciI6IjI0MDE6NDkwMDoxYzI2OjI1OTM6ODk2ZjpmNzVkOmQzNmI6ZTViYyIsImxvZ2luX2hpbnQiOiJPLkNpUmtPVEF4TUdRd09TMWtPRGMxTFRRd1kyTXRPRFEwWlMwd09HWmpNVFl3WkRCalpEa1NKRFkyWkRnNE5EaGtMVEkyWWpZdE5ERTBOeTA0TVRJMExURXlOell5TkdRM1lqTmhOaG9ZWVdwaGVTNXphVzVuYUVCamJHOTFaR1oxZW1VdVkyOXRJQms9IiwibmFtZSI6IkFqYXkgU2luZ2giLCJvaWQiOiJkOTAxMGQwOS1kODc1LTQwY2MtODQ0ZS0wOGZjMTYwZDBjZDkiLCJwdWlkIjoiMTAwMzIwMDQxRTAxNTRBQSIsInJoIjoiMS5BU2NBallUWVpyWW1SMEdCSkJKMkpOZXpwZ0lBQUFBQUFQRVB6Z0FBQUFBQUFBRGhBUzBuQUEuIiwic2NwIjoiTWFpbC5TZW5kIFNNVFAuU2VuZCBVc2VyLlJlYWQiLCJzaWQiOiIwMDdkMDAxOS1lODg3LTM0YmQtOTRjNC02MzYyYzA1MzRjZGQiLCJzaWduaW5fc3RhdGUiOlsia21zaSJdLCJzdWIiOiJvbFh5QURwd012alB1MFpqSTB0bklxTlBxTmRXNDJUSEhnQzNzSVZuWlQwIiwidGVuYW50X3JlZ2lvbl9zY29wZSI6Ik5BIiwidGlkIjoiNjZkODg0OGQtMjZiNi00MTQ3LTgxMjQtMTI3NjI0ZDdiM2E2IiwidW5pcXVlX25hbWUiOiJhamF5LnNpbmdoQGNsb3VkZnV6ZS5jb20iLCJ1cG4iOiJhamF5LnNpbmdoQGNsb3VkZnV6ZS5jb20iLCJ1dGkiOiJrZG9obi1uangwQ0ViQjcyZElOdkFBIiwidmVyIjoiMS4wIiwid2lkcyI6WyJiNzlmYmY0ZC0zZWY5LTQ2ODktODE0My03NmIxOTRlODU1MDkiXSwieG1zX2FjdF9mY3QiOiIzIDkiLCJ4bXNfYXVkX2d1aWQiOiIwMDAwMDAwMi0wMDAwLTBmZjEtY2UwMC0wMDAwMDAwMDAwMDAiLCJ4bXNfZnRkIjoiczZyMzBiWDhSeDdrRURxUVcyVFQ2SThWUERBSkVpclA4OGQ5cTd5dUJmOEJkWE5sWVhOMExXUnpiWE0iLCJ4bXNfaWRyZWwiOiI2IDEiLCJ4bXNfc3ViX2ZjdCI6IjggMyIsInhtc190bnRfZmN0IjoiMyAxOCJ9.RW-ht-94JQ5XU7QAAcGP0bxndhFE3IaI6G9-C0MFZqVAcFw3k2nd63i5DYh3pbetrnGZKHoIFgYdNW5ZyMSWpbKHMCqZuUn48QWbAvIMAScZRmGJoZ17YZl39P6EViLJN3TCHh8SgjW5z-5lLILoOeI4ioPASKzKet6VQDRLzNexHO0Uf7Pg7RYd24YM9w0pApqIRWhXyf9lbGtAEBDfH2r9jmfsEIv7CL3w_81yDww5JabYdU72MISRu7Ub2yIdt2ZTkn0i_xJKl48iLNBrdduN7ID-6DfeOAdPWFeOCcGZeb0B-gywEVG_iSBd-LnTvIQLByiX8sKHVXGg9R3nCw",
+    "tokenExpiry": "2026-05-28T00:51:00.841Z",
+    "connectedAt": "2026-05-27T23:21:48.841Z",
+    "connectedEmail": "ajay.singh@cloudfuze.com"
+  },
+  "encryptedData": null,
+  "updatedAt": {
+    "$date": "2026-05-27T23:21:48.841Z"
+  },
+  "updatedBy": "admin"
+},
+{
+  "_id": {
+    "$oid": "6a16eb625ebf23582fb56f36"
+  },
+  "key": "alertRules",
+  "__v": 0,
+  "data": {
+    "stallIntervalMinutes": 60,
+    "cooldownHours": 2,
+    "conflictThresholdHours": 4,
+    "enableEmailAlerts": true,
+    "enableTeamsAlerts": false
+  },
+  "encryptedData": null,
+  "updatedAt": {
+    "$date": "2026-05-27T23:56:12.125Z"
+  },
+  "updatedBy": "dev"
+},
+{
+  "_id": {
+    "$oid": "6a170b225ebf23582fb56f37"
+  },
+  "key": "devLoginEnabled",
+  "__v": 0,
+  "data": {
+    "enabled": false
+  },
+  "encryptedData": null,
+  "updatedAt": {
+    "$date": "2026-05-27T22:40:45.726Z"
+  },
+  "updatedBy": "dev"
+}]
