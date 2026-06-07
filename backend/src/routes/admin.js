@@ -1056,7 +1056,12 @@ const PLATFORMS = ['Slack', 'Google Chat', 'Teams', 'Meta'];
 
 router.get('/projects', async (req, res) => {
   try {
-    const projects = await ProjectConfig.find({}).sort({ createdAt: -1 });
+    // ?activeOnly=true  →  only active projects (used by dashboard)
+    // no param          →  all projects (used by admin panel)
+    const filter = req.query.activeOnly === 'true'
+      ? { status: { $nin: ['inactive', 'on_hold'] } }
+      : {};
+    const projects = await ProjectConfig.find(filter).sort({ createdAt: -1 });
     console.log('[Admin] Total projects in MongoDB:', projects.length);
     projects.forEach(p => {
       console.log(`  - ${p.projectName} (DB: ${p.metabaseDatabaseId}, active: ${p.isActive})`);
@@ -1121,6 +1126,7 @@ router.post('/projects', async (req, res) => {
       showDms:         showDms         !== undefined ? Boolean(showDms)       : true,
       showDmToSpace:   showDmToSpace   !== undefined ? Boolean(showDmToSpace) : false,
       isActive:        true,
+      status:          'active',
       updatedAt:       new Date()
     });
 
@@ -1136,7 +1142,7 @@ router.post('/projects', async (req, res) => {
 
 router.put('/projects/:id', async (req, res) => {
   try {
-    const { projectName, metabaseDatabaseId, projectId, source, destination, teamsWebhookUrl, alertEmail, isActive, showDms, showDmToSpace } = req.body;
+    const { projectName, metabaseDatabaseId, projectId, source, destination, teamsWebhookUrl, alertEmail, isActive, status, alertsEnabled, alertChannels, alertDms, alertDmToSpace, showDms, showDmToSpace } = req.body;
 
     if (source && !PLATFORMS.includes(source)) {
       return res.status(400).json({ error: 'Invalid source platform' });
@@ -1164,6 +1170,11 @@ router.put('/projects/:id', async (req, res) => {
     if (teamsWebhookUrl    !== undefined) update.teamsWebhookUrl    = teamsWebhookUrl || '';
     if (alertEmail         !== undefined) update.alertEmail         = alertEmail      || '';
     if (isActive           !== undefined) update.isActive           = isActive;
+    if (status             !== undefined) update.status             = status;
+    if (alertsEnabled      !== undefined) update.alertsEnabled      = Boolean(alertsEnabled);
+    if (alertChannels      !== undefined) update.alertChannels      = Boolean(alertChannels);
+    if (alertDms           !== undefined) update.alertDms           = Boolean(alertDms);
+    if (alertDmToSpace     !== undefined) update.alertDmToSpace     = Boolean(alertDmToSpace);
     if (showDms            !== undefined) update.showDms            = Boolean(showDms);
     if (showDmToSpace      !== undefined) update.showDmToSpace      = Boolean(showDmToSpace);
 
@@ -1177,20 +1188,19 @@ router.put('/projects/:id', async (req, res) => {
   }
 });
 
-router.delete('/projects/:id', async (req, res) => {
-  try {
-    const doc = await ProjectConfig.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false, updatedAt: new Date() },
-      { new: true }
-    );
-    if (!doc) return res.status(404).json({ error: 'Project not found' });
-    await logAction(req.user, 'delete_project', '/admin/projects/' + req.params.id, { projectName: doc.projectName });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+router.delete('/projects/:id',
+  require('../middleware/roles').requireDeleteAccess,
+  async (req, res) => {
+    try {
+      const doc = await ProjectConfig.findByIdAndDelete(req.params.id);
+      if (!doc) return res.status(404).json({ error: 'Project not found' });
+      await logAction(req.user, 'delete_project', '/admin/projects/' + req.params.id, { projectName: doc.projectName });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   }
-});
+);
 
 // Generic test endpoint used by AdminWebhooks
 router.post('/test/webhook', async (req, res) => {
@@ -1263,7 +1273,7 @@ router.get('/debug/emails', async (req, res) => {
     const mongoose = require('mongoose');
     const db = mongoose.connection.db;
 
-    const projects = await db.collection('projectconfigs').find({ isActive: true }).toArray();
+    const projects = await db.collection('projectconfigs').find({ status: { $nin: ['inactive', 'on_hold'] } }).toArray();
     const smtpDoc  = await db.collection('systemconfigs').findOne({ key: 'smtp' });
 
     res.json({
@@ -1340,7 +1350,7 @@ router.post('/alerts/test', async (req, res) => {
 
     const project = projectId
       ? await ProjectConfig.findById(projectId)
-      : await ProjectConfig.findOne({ isActive: true });
+      : await ProjectConfig.findOne({ status: { $nin: ['inactive', 'on_hold'] } });
 
     if (!project) {
       return res.status(404).json({ error: 'No active project found' });
@@ -1552,6 +1562,98 @@ router.post('/alerts/test-email-direct', async (req, res) => {
   }
 });
 
+// ── Send preview of stall + conflict alert emails ─────────────────────────────
+
+router.post('/alerts/test-preview', async (req, res) => {
+  try {
+    const { to } = req.body;
+    const recipient = (to || '').trim();
+    if (!recipient) return res.status(400).json({ error: 'Recipient email required' });
+
+    const {
+      buildStallHtmlBody, buildStallTextBody,
+      buildConflictHtmlBody, buildConflictTextBody
+    } = require('../services/cronService');
+
+    const mockProject = {
+      projectName:   'HCL Migration (Preview)',
+      source:        'Slack',
+      destination:   'Google Chat',
+      migrationType: 'messaging',
+    };
+
+    const mockDiff = {
+      snapshotAge:     30,
+      stalledDuration: 45,
+      channelPrevious: 80000,
+      channelCurrent:  80000,
+      dmsPrevious:     12000,
+      dmsCurrent:      12000,
+    };
+
+    const mockData = {
+      channels: {
+        hasDelta: true,
+        oneTime:  {
+          rowCount: 80,
+          multipleInitiations: [
+            { name: 'General',     count: 3 },
+            { name: 'Engineering', count: 2 },
+            { name: 'Product',     count: 2 },
+          ],
+        },
+        delta:    { rowCount: 40 },
+        total: 120, completed: 80, inProgress: 15, conflict: 5,
+        processedWithConflict: 8, noMessage: 7, notProcessed: 5,
+        processedCount: 80000, inProgressCount: 12000,
+        conflictCount: 3000, notProcessedCount: 5000,
+      },
+      dms: {
+        hasDelta: true,
+        oneTime:  { rowCount: 150 },
+        delta:    { rowCount: 50 },
+        total: 200, completed: 140, inProgress: 30, conflict: 8,
+        processedWithConflict: 10, noMessage: 6, notProcessed: 6,
+        processedCount: 140000, inProgressCount: 18000,
+        conflictCount: 4000, notProcessedCount: 6000,
+      },
+    };
+
+    const mockConflictRows = {
+      channels: [
+        { channelName: 'General', wsId: 'C001ABC123', error: 'Item not found. client-request-id: 3fa85f64-5717-4562-b3fc-2c963f66afa6' },
+        { channelName: 'Engineering', wsId: 'C002DEF456', error: 'Permission denied on resource. client-request-id: 1a2b3c4d-1234-5678-abcd-ef0123456789' },
+        { channelName: 'Product', wsId: 'C003GHI789', error: 'Rate limit exceeded.' },
+      ],
+      dms: [
+        { channelName: 'john.doe@acme.com', wsId: 'D001JKL012', error: 'User not found in target tenant. client-request-id: aabbccdd-eeff-0011-2233-445566778899' },
+        { channelName: 'jane.smith@acme.com', wsId: 'D002MNO345', error: 'Mailbox not enabled.' },
+      ],
+    };
+
+    await emailService.sendAlert(
+      recipient,
+      '⏱ [Preview] Migration Stalled — HCL Migration',
+      buildStallTextBody(mockProject, mockDiff, mockData),
+      buildStallHtmlBody(mockProject, mockDiff, mockData, mockConflictRows)
+    );
+
+    await emailService.sendAlert(
+      recipient,
+      '⚠ [Preview] Conflict Alert — HCL Migration',
+      buildConflictTextBody(mockProject, mockData),
+      buildConflictHtmlBody(mockProject, mockData, mockConflictRows)
+    );
+
+    console.log(`[AlertPreview] Sent stall + conflict preview to ${recipient}`);
+    res.json({ success: true, message: `Preview emails sent to ${recipient}` });
+
+  } catch (err) {
+    console.error('[AlertPreview] FAILED:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Reset alert cooldown ──────────────────────────────────────────────────────
 
 router.post('/alerts/reset-cooldown', async (req, res) => {
@@ -1612,6 +1714,59 @@ router.post('/alerts/trigger-now', async (req, res) => {
     console.log   = originalLog;
     console.error = originalError;
     console.warn  = originalWarn;
+  }
+});
+
+// ── Domain Whitelist ──────────────────────────────────────────────────────────
+
+router.get('/config/domains', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    const doc = await db.collection('systemconfigs')
+      .findOne({ key: 'domainWhitelist' });
+
+    res.json({
+      domains:   doc?.data?.domains || [],
+      updatedAt: doc?.updatedAt     || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/config/domains', async (req, res) => {
+  try {
+    const { domains } = req.body;
+
+    if (!Array.isArray(domains)) {
+      return res.status(400).json({ error: 'domains must be an array' });
+    }
+
+    const cleaned = domains
+      .map(d => d.toLowerCase().trim().replace(/^@/, ''))
+      .filter(d => d.includes('.') && d.length > 3);
+
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+
+    await db.collection('systemconfigs').findOneAndUpdate(
+      { key: 'domainWhitelist' },
+      {
+        $set: {
+          key:       'domainWhitelist',
+          data:      { domains: cleaned },
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+
+    console.log('[Domains] Whitelist updated:', cleaned);
+
+    res.json({ success: true, domains: cleaned });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

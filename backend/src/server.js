@@ -68,6 +68,11 @@ try {
   console.log('[Routes] reports ✓');
 } catch(e) { console.error('[Routes] reports FAILED:', e.message); }
 
+try {
+  app.use('/api/users', require('./routes/users'));
+  console.log('[Routes] users ✓');
+} catch(e) { console.error('[Routes] users FAILED:', e.message); }
+
 // Print all registered routes for startup verification
 const listRoutes = (app) => {
   const routes = [];

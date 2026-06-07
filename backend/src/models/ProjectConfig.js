@@ -50,6 +50,27 @@ const ProjectConfigSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  status: {
+    type:    String,
+    enum:    ['active', 'inactive', 'on_hold'],
+    default: 'active'
+  },
+  alertsEnabled: {
+    type: Boolean,
+    default: true
+  },
+  alertChannels: {
+    type: Boolean,
+    default: true
+  },
+  alertDms: {
+    type: Boolean,
+    default: true
+  },
+  alertDmToSpace: {
+    type: Boolean,
+    default: true
+  },
   isActive: {
     type: Boolean,
     default: true

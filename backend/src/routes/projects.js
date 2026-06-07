@@ -156,6 +156,34 @@ router.get('/live/:databaseId', async (req, res) => {
   }
 });
 
+// ── Conflict tooltip: top 3 errors via server-side $group (fast) ─────────────
+router.get('/conflict-errors/:databaseId', async (req, res) => {
+  try {
+    const dbId = Number(req.params.databaseId);
+    if (isNaN(dbId)) return res.status(400).json({ error: 'Invalid database ID' });
+    const { fetchConflictTopErrors } = require('../services/metabase');
+    const result = await fetchConflictTopErrors(dbId);
+    res.json({ tableFound: result.tableFound, topErrors: result.topErrors });
+  } catch (err) {
+    console.error('[ConflictErrors]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Conflict detail page: all conflict rows, $match+$project in MongoDB ───────
+router.get('/conflict-details/:databaseId', async (req, res) => {
+  try {
+    const dbId = Number(req.params.databaseId);
+    if (isNaN(dbId)) return res.status(400).json({ error: 'Invalid database ID' });
+    const { fetchConflictDetails } = require('../services/metabase');
+    const result = await fetchConflictDetails(dbId);
+    res.json({ tableFound: result.tableFound, details: result.details, total: result.total });
+  } catch (err) {
+    console.error('[ConflictDetails]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/timeline/:databaseId', async (req, res) => {
   try {
     const dbId = Number(req.params.databaseId);

@@ -110,63 +110,111 @@ router.get('/azure-config', async (req, res) => {
 router.post('/ms-login', async (req, res) => {
   try {
     const { accessToken } = req.body;
+
     if (!accessToken) {
       return res.status(400).json({ error: 'Access token required' });
     }
 
-    // Verify with Microsoft Graph API
+    // Get user info from Microsoft Graph
     let msUser;
     try {
-      const graphResponse = await axios.get('https://graph.microsoft.com/v1.0/me', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 10000
+      const graphRes = await axios.get('https://graph.microsoft.com/v1.0/me', {
+        headers:  { Authorization: `Bearer ${accessToken}` },
+        timeout:  10000
       });
-      msUser = graphResponse.data;
-    } catch (graphErr) {
-      console.error('[MSLogin] Graph API failed:', graphErr.message);
+      msUser = graphRes.data;
+    } catch (e) {
       return res.status(401).json({ error: 'Failed to get user info from Microsoft' });
     }
 
-    const userEmail = (msUser.mail || msUser.userPrincipalName || '').toLowerCase();
-    const userName  = msUser.displayName || userEmail;
+    const userEmail = (
+      msUser.mail || msUser.userPrincipalName || ''
+    ).toLowerCase().trim();
 
-    console.log('[MSLogin] User:', { userName, userEmail });
+    const userName = msUser.displayName || userEmail;
 
-    // Check admin emails list
-    const mongoose = require('mongoose');
-    const db       = mongoose.connection.db;
-
-    // Try adminEmails collection first (written by Admin → Admin Emails UI)
-    const adminEmailsDoc = await db.collection('systemconfigs').findOne({ key: 'adminEmails' });
-    const adminEmails    = (adminEmailsDoc?.data?.emails || []).map(e => e.toLowerCase());
-
-    console.log('[MSLogin] Admin emails configured:', adminEmails.length);
-
-    // If no admin emails are configured, grant ms-admin to all MS users
-    // (prevents lockout during initial setup)
-    let role;
-    if (adminEmails.length === 0) {
-      role = 'ms-admin';
-      console.log('[MSLogin] No admin emails configured — granting ms-admin to all');
-    } else {
-      role = adminEmails.includes(userEmail) ? 'ms-admin' : 'ms-user';
+    if (!userEmail) {
+      return res.status(401).json({
+        error: 'Could not get email from Microsoft account'
+      });
     }
 
-    console.log('[MSLogin] Assigned role:', role);
+    // ── DOMAIN WHITELIST CHECK ──────────────────────────
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
 
-    const secret = process.env.DEV_JWT_SECRET || process.env.JWT_SECRET || 'fallback-secret';
-    const token  = jwt.sign(
-      { role, name: userName, email: userEmail },
+    const whitelistDoc = await db
+      .collection('systemconfigs')
+      .findOne({ key: 'domainWhitelist' });
+
+    const allowedDomains = (
+      whitelistDoc?.data?.domains || []
+    ).map(d => d.toLowerCase().trim());
+
+    if (allowedDomains.length > 0) {
+      const emailDomain = userEmail.split('@')[1];
+      const isAllowed = allowedDomains.some(d => d === emailDomain);
+
+      if (!isAllowed) {
+        console.log(
+          `[MSLogin] Blocked: ${userEmail} ` +
+          `(domain: ${emailDomain} not whitelisted)`
+        );
+        return res.status(403).json({
+          error:   'Access denied',
+          message: `Only accounts from these domains are allowed: ` +
+                   allowedDomains.join(', ') +
+                   '. Please contact your Project Manager.'
+        });
+      }
+    }
+
+    // ── ROLE LOOKUP / AUTO REGISTER ─────────────────────
+    const User = require('../models/User');
+
+    let user = await User.findOne({ email: userEmail });
+
+    if (!user) {
+      user = await User.create({
+        email:     userEmail,
+        name:      userName,
+        role:      'eng',
+        isActive:  true,
+        addedBy:   'auto-registered',
+        lastLogin: new Date()
+      });
+      console.log(`[MSLogin] Auto-registered: ${userEmail} as eng`);
+    } else {
+      if (!user.isActive) {
+        return res.status(403).json({
+          error: 'Your account has been deactivated. Contact your Project Manager.'
+        });
+      }
+      await User.findByIdAndUpdate(user._id, {
+        lastLogin: new Date(),
+        name:      userName
+      });
+    }
+
+    const role = user.role;
+    console.log(`[MSLogin] ✓ Login: ${userEmail} role: ${role}`);
+
+    const secret = process.env.JWT_SECRET || process.env.DEV_JWT_SECRET;
+
+    const token = jwt.sign(
+      { email: userEmail, name: userName, role },
       secret,
       { expiresIn: '8h' }
     );
 
-    console.log('[MSLogin] ✓ Success:', userName, role);
-    res.json({ token, user: { name: userName, email: userEmail, role } });
+    res.json({
+      token,
+      user: { email: userEmail, name: userName, role }
+    });
 
   } catch (err) {
     console.error('[MSLogin] Error:', err.message);
-    res.status(500).json({ error: 'Login failed: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
