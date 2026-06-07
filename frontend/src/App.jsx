@@ -16,6 +16,9 @@ import AdminAlertRules from './pages/admin/AdminAlertRules';
 import AdminHealth from './pages/admin/AdminHealth';
 import AdminPassword from './pages/admin/AdminPassword';
 import SmtpOAuthCallback from './pages/admin/SmtpOAuthCallback';
+import AdminUsers from './pages/admin/AdminUsers';
+import AdminDomains from './pages/admin/AdminDomains';
+import ConflictDetails from './pages/ConflictDetails';
 
 function LoadingScreen() {
   return (
@@ -41,12 +44,13 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+const ADMIN_ROLES = ['dev-admin', 'ms-admin', 'pm', 'dm', 'sl', 'eng'];
+
 function AdminRoute({ children }) {
   const { isAuthenticated, user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  const isAdmin = user?.role === 'ms-admin' || user?.role === 'dev-admin';
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  if (!ADMIN_ROLES.includes(user?.role)) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -86,7 +90,13 @@ function AppRoutes() {
         <Route path="alertrules" element={<AdminAlertRules />} />
         <Route path="health"     element={<AdminHealth />} />
         <Route path="password"   element={<AdminPassword />} />
+        <Route path="users"      element={<AdminUsers />} />
+        <Route path="domains"    element={<AdminDomains />} />
       </Route>
+
+      <Route path="/conflict-details/:databaseId" element={
+        <ProtectedRoute><ConflictDetails /></ProtectedRoute>
+      } />
 
       <Route path="/" element={
         <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />

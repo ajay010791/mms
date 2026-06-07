@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../utils/axios';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
 
 const PLATFORMS = ['Slack', 'Google Chat', 'Teams', 'Meta'];
 
@@ -22,6 +23,9 @@ const emptyForm = {
 };
 
 export default function AdminWebhooks() {
+  const { user } = useAuth();
+  const canDelete = ['dev-admin', 'pm'].includes(user?.role);
+
   const [projects, setProjects]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [showForm, setShowForm]   = useState(false);
@@ -513,35 +517,37 @@ export default function AdminWebhooks() {
                             Test
                           </button>
                         )}
-                        {project.isActive ? (
-                          <button
-                            onClick={() => handleDelete(project._id, project.projectName)}
-                            title="Deactivate project"
-                            style={{
-                              padding: '5px 8px',
-                              border: '0.5px solid #F7C1C1',
-                              borderRadius: '6px', fontSize: '11px',
-                              background: '#FCEBEB', color: '#791F1F',
-                              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px'
-                            }}
-                          >
-                            <i className="ti ti-trash" style={{ fontSize: '12px' }} />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleReactivate(project._id)}
-                            title="Reactivate project"
-                            style={{
-                              padding: '5px 8px',
-                              border: '0.5px solid #C0DD97',
-                              borderRadius: '6px', fontSize: '11px',
-                              background: '#EAF3DE', color: '#27500A',
-                              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px'
-                            }}
-                          >
-                            <i className="ti ti-refresh" style={{ fontSize: '12px' }} />
-                            Reactivate
-                          </button>
+                        {canDelete && (
+                          project.isActive ? (
+                            <button
+                              onClick={() => handleDelete(project._id, project.projectName)}
+                              title="Deactivate project"
+                              style={{
+                                padding: '5px 8px',
+                                border: '0.5px solid #F7C1C1',
+                                borderRadius: '6px', fontSize: '11px',
+                                background: '#FCEBEB', color: '#791F1F',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px'
+                              }}
+                            >
+                              <i className="ti ti-trash" style={{ fontSize: '12px' }} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleReactivate(project._id)}
+                              title="Reactivate project"
+                              style={{
+                                padding: '5px 8px',
+                                border: '0.5px solid #C0DD97',
+                                borderRadius: '6px', fontSize: '11px',
+                                background: '#EAF3DE', color: '#27500A',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px'
+                              }}
+                            >
+                              <i className="ti ti-refresh" style={{ fontSize: '12px' }} />
+                              Reactivate
+                            </button>
+                          )
                         )}
                       </div>
                     </td>

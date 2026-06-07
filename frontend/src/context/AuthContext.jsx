@@ -66,7 +66,8 @@ export function AuthProvider({ children }) {
     sessionStorage.removeItem(USER_KEY);
   };
 
-  const isAdmin         = !!(user && (user.role === 'dev-admin' || user.role === 'ms-admin'));
+  const ADMIN_ROLES = ['dev-admin', 'ms-admin', 'pm', 'dm', 'sl', 'eng'];
+  const isAdmin     = !!(user && ADMIN_ROLES.includes(user.role));
   const isAuthenticated = !!token && !!user;
 
   if (loading) {

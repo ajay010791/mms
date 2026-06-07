@@ -119,6 +119,11 @@ export default function Login() {
         setMsError('Popup blocked. Please allow popups for this site.');
       } else if (err.errorCode === 'interaction_in_progress') {
         setMsError('Please refresh the page and try again.');
+      } else if (err.response?.status === 403) {
+        setMsError(
+          err.response.data?.message ||
+          'Access denied. Your account is not allowed to access this system.'
+        );
       } else {
         setMsError(
           err.response?.data?.error ||

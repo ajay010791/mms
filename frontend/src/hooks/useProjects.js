@@ -10,7 +10,7 @@ export function useProjects() {
 
   const fetchProjectList = async () => {
     try {
-      const res = await api.get('/api/admin/projects');
+      const res = await api.get('/api/admin/projects?activeOnly=true');
       setProjects(Array.isArray(res.data) ? res.data : []);
       setError(null);
       setLastUpdated(new Date());

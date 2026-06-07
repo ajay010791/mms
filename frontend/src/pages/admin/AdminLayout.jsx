@@ -1,34 +1,62 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import useAuth from '../../hooks/useAuth';
-
-const sidebarItems = [
-  {
-    group: 'Configuration',
-    items: [
-      { label: 'Azure AD',   icon: 'ti-brand-azure',  path: '/admin/azure' },
-      { label: 'Metabase',   icon: 'ti-database',     path: '/admin/metabase' },
-      { label: 'Email/SMTP', icon: 'ti-mail',         path: '/admin/smtp' },
-    ]
-  },
-  {
-    group: 'Projects',
-    items: [
-      { label: 'Projects',    icon: 'ti-folder',      path: '/admin/projects' },
-      { label: 'Alert Rules', icon: 'ti-bell',        path: '/admin/alertrules' },
-    ]
-  },
-  {
-    group: 'System',
-    items: [
-      { label: 'Health Check', icon: 'ti-activity',    path: '/admin/health' },
-      { label: 'Admin Access', icon: 'ti-shield-lock', path: '/admin/password' },
-    ]
-  }
-];
+import { useAuth } from '../../context/AuthContext';
 
 export default function AdminLayout() {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  const isSuperAdmin = user?.role === 'dev-admin';
+  const isPM  = ['dev-admin', 'pm'].includes(user?.role);
+  const isDM  = ['dev-admin', 'pm', 'dm'].includes(user?.role);
+  const isSL  = ['dev-admin', 'pm', 'dm', 'sl'].includes(user?.role);
+
+  const sidebarItems = [
+    ...(isSL ? [{
+      path:  '/admin/users',
+      icon:  'ti-users',
+      label: 'Users'
+    }] : []),
+    {
+      path:  '/admin/projects',
+      icon:  'ti-layout-list',
+      label: 'Projects'
+    },
+    ...(isPM ? [{
+      path:  '/admin/alertrules',
+      icon:  'ti-bell',
+      label: 'Alert Rules'
+    }] : []),
+    ...(isPM ? [{
+      path:  '/admin/smtp',
+      icon:  'ti-mail',
+      label: 'Email / SMTP'
+    }] : []),
+    ...(isPM ? [{
+      path:  '/admin/azure',
+      icon:  'ti-brand-azure',
+      label: 'Azure AD'
+    }] : []),
+    ...(isPM ? [{
+      path:  '/admin/metabase',
+      icon:  'ti-database',
+      label: 'Metabase'
+    }] : []),
+    ...(isSuperAdmin ? [{
+      path:  '/admin/domains',
+      icon:  'ti-shield-check',
+      label: 'Domain Whitelist'
+    }] : []),
+    ...(isPM ? [{
+      path:  '/admin/health',
+      icon:  'ti-heartbeat',
+      label: 'Health'
+    }] : []),
+    ...(isSuperAdmin ? [{
+      path:  '/admin/password',
+      icon:  'ti-key',
+      label: 'Password'
+    }] : [])
+  ];
 
   return (
     <div style={{
@@ -76,42 +104,30 @@ export default function AdminLayout() {
         </div>
 
         {/* Nav items */}
-        {sidebarItems.map(group => (
-          <div key={group.group} style={{ marginBottom: '16px' }}>
-            <div style={{
-              fontSize: '9px', fontWeight: '500',
-              color: 'var(--color-text-tertiary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.07em',
-              padding: '0 16px',
-              marginBottom: '4px'
-            }}>
-              {group.group}
-            </div>
-            {group.items.map(item => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                style={({ isActive }) => ({
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 16px',
-                  fontSize: '12px',
-                  color: isActive ? '#185FA5' : 'var(--color-text-secondary)',
-                  background: isActive ? '#E6F1FB' : 'transparent',
-                  borderLeft: isActive ? '2px solid #378ADD' : '2px solid transparent',
-                  textDecoration: 'none',
-                  fontWeight: isActive ? '500' : '400',
-                  transition: 'all 0.1s'
-                })}
-              >
-                <i className={`ti ${item.icon}`} style={{ fontSize: '14px' }} />
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
-        ))}
+        <div style={{ flex: 1 }}>
+          {sidebarItems.map(item => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              style={({ isActive }) => ({
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                fontSize: '12px',
+                color: isActive ? '#185FA5' : 'var(--color-text-secondary)',
+                background: isActive ? '#E6F1FB' : 'transparent',
+                borderLeft: isActive ? '2px solid #378ADD' : '2px solid transparent',
+                textDecoration: 'none',
+                fontWeight: isActive ? '500' : '400',
+                transition: 'all 0.1s'
+              })}
+            >
+              <i className={`ti ${item.icon}`} style={{ fontSize: '14px' }} />
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
 
         {/* Bottom — signed in as + back button */}
         <div style={{ marginTop: 'auto', padding: '0 8px' }}>
@@ -120,9 +136,9 @@ export default function AdminLayout() {
               padding: '6px 8px', marginBottom: '6px',
               fontSize: '11px', color: 'var(--color-text-tertiary)'
             }}>
-              {user.source === 'dev-login'
+              {user.role === 'dev-admin'
                 ? <span style={{ color: '#d97706' }}>⚡ Dev Admin</span>
-                : user.name || 'Admin'}
+                : user.name || user.email || 'Admin'}
             </div>
           )}
           <button
@@ -145,7 +161,7 @@ export default function AdminLayout() {
         </div>
       </div>
 
-      {/* Main content — child route rendered here */}
+      {/* Main content */}
       <div style={{ flex: 1, overflow: 'auto' }}>
         <Outlet />
       </div>

@@ -10,6 +10,14 @@ const MIGRATION_TYPES = [
   { value: 'content',   label: 'Content' },
 ];
 
+const STATUS_OPTIONS = [
+  { value: 'active',   label: 'Active',   color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+  { value: 'inactive', label: 'Inactive', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
+  { value: 'on_hold',  label: 'On Hold',  color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
+];
+
+const getStatusMeta = v => STATUS_OPTIONS.find(s => s.value === v) || STATUS_OPTIONS[0];
+
 const EMPTY_FORM = {
   projectName:        '',
   metabaseDatabaseId: '',
@@ -17,11 +25,15 @@ const EMPTY_FORM = {
   source:             '',
   destination:        '',
   migrationType:      '',
-  combinationType:    '',
   teamsWebhookUrl:    '',
   alertEmail:         '',
-  showDms:            true,
+  status:             'active',
+  showDms:            false,
   showDmToSpace:      false,
+  alertsEnabled:      true,
+  alertChannels:      false,
+  alertDms:           false,
+  alertDmToSpace:     false,
 };
 
 export default function AdminProjects() {
@@ -66,11 +78,15 @@ export default function AdminProjects() {
       source:             p.source             || '',
       destination:        p.destination        || '',
       migrationType:      p.migrationType      || '',
-      combinationType:    p.combinationType    || '',
       teamsWebhookUrl:    p.teamsWebhookUrl    || '',
       alertEmail:         p.alertEmail         || '',
+      status:             p.status             || 'active',
       showDms:            p.showDms            !== false,
       showDmToSpace:      p.showDmToSpace      === true,
+      alertsEnabled:      p.alertsEnabled      !== false,
+      alertChannels:      p.alertChannels      !== false,
+      alertDms:           p.alertDms           !== false,
+      alertDmToSpace:     p.alertDmToSpace     !== false,
     });
     setError('');
     setSuccess('');
@@ -92,7 +108,6 @@ export default function AdminProjects() {
       const payload = {
         ...form,
         metabaseDatabaseId: Number(form.metabaseDatabaseId),
-        combinationType: form.combinationType || (form.source && form.destination ? `${form.source} → ${form.destination}` : ''),
       };
       if (editingId) {
         await api.put(`/api/admin/projects/${editingId}`, payload);
@@ -108,6 +123,26 @@ export default function AdminProjects() {
       setError(e.response?.data?.error || 'Save failed');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleStatusChange(p, newStatus) {
+    setError('');
+    try {
+      await api.put(`/api/admin/projects/${p._id}`, { status: newStatus });
+      await fetchProjects();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to update status');
+    }
+  }
+
+  async function handleToggleSection(p, field) {
+    setError('');
+    try {
+      await api.put(`/api/admin/projects/${p._id}`, { [field]: p[field] === false });
+      await fetchProjects();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to update alert setting');
     }
   }
 
@@ -186,6 +221,28 @@ export default function AdminProjects() {
                 <p style={helpStyle}>Internal identifier for this project.</p>
               </div>
 
+              {/* Project Status */}
+              <div>
+                <label style={labelStyle}>Project Status</label>
+                <select
+                  value={form.status}
+                  onChange={e => setField('status', e.target.value)}
+                  style={{
+                    ...inputStyle,
+                    color:      getStatusMeta(form.status).color,
+                    fontWeight: 500,
+                    border:     `1px solid ${getStatusMeta(form.status).border}`,
+                    background: getStatusMeta(form.status).bg,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {STATUS_OPTIONS.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+                <p style={helpStyle}>Inactive / On Hold: hidden from dashboard, no Metabase hits.</p>
+              </div>
+
               {/* Migration Type */}
               <div>
                 <label style={labelStyle}>Migration Type *</label>
@@ -234,18 +291,6 @@ export default function AdminProjects() {
                   ))}
                 </select>
                 <p style={helpStyle}>Platform messages are migrating TO.</p>
-              </div>
-
-              {/* Combination Type */}
-              <div>
-                <label style={labelStyle}>Combination Type</label>
-                <input
-                  value={form.combinationType}
-                  onChange={e => setField('combinationType', e.target.value)}
-                  placeholder={form.source && form.destination ? `${form.source} → ${form.destination}` : 'e.g. Slack → Teams'}
-                  style={inputStyle}
-                />
-                <p style={helpStyle}>Display label shown on the dashboard card. Leave blank to auto-derive from source → destination.</p>
               </div>
 
               {/* Teams Webhook URL */}
@@ -326,6 +371,73 @@ export default function AdminProjects() {
               </div>
             </div>
 
+            {/* Alert Notifications */}
+            <div style={{ marginTop: 22, borderTop: '1px solid #F3F4F6', paddingTop: 18 }}>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Alert Notifications per Section</span>
+                <p style={{ ...helpStyle, marginTop: 3 }}>
+                  Disable alerts for sections that have not been initiated yet. Stall and conflict alerts will only fire for enabled sections.
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                {/* Channels */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: '10px 14px', border: `1px solid ${form.alertChannels ? '#BFDBFE' : '#E5E7EB'}`, borderRadius: 8, background: form.alertChannels ? '#EFF6FF' : '#FAFAFA' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.alertChannels}
+                    onChange={e => setField('alertChannels', e.target.checked)}
+                    style={{ marginTop: 2, accentColor: '#2563eb', width: 15, height: 15, flexShrink: 0 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 2 }}>
+                      Channels — Alert on stall or conflict
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280' }}>
+                      Send alerts when channel migration stalls or has conflicts.
+                    </div>
+                  </div>
+                </label>
+
+                {/* DMs */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: '10px 14px', border: `1px solid ${form.alertDms ? '#D1FAE5' : '#E5E7EB'}`, borderRadius: 8, background: form.alertDms ? '#F0FDF4' : '#FAFAFA' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.alertDms}
+                    onChange={e => setField('alertDms', e.target.checked)}
+                    style={{ marginTop: 2, accentColor: '#16a34a', width: 15, height: 15, flexShrink: 0 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 2 }}>
+                      Direct Messages — Alert on stall or conflict
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280' }}>
+                      Disable if DM migration has not been initiated yet to avoid false stall alerts.
+                    </div>
+                  </div>
+                </label>
+
+                {/* DmToSpace */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', padding: '10px 14px', border: `1px solid ${form.alertDmToSpace ? '#CCFBF1' : '#E5E7EB'}`, borderRadius: 8, background: form.alertDmToSpace ? '#F0FDFA' : '#FAFAFA' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.alertDmToSpace}
+                    onChange={e => setField('alertDmToSpace', e.target.checked)}
+                    style={{ marginTop: 2, accentColor: '#0d9488', width: 15, height: 15, flexShrink: 0 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', marginBottom: 2 }}>
+                      DM → Space — Alert on stall or conflict
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280' }}>
+                      Disable if DM→Space migration has not been initiated yet.
+                    </div>
+                  </div>
+                </label>
+
+              </div>
+            </div>
+
             {/* Feedback */}
             {error && (
               <div style={{ marginTop: 14, padding: '8px 12px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', fontSize: 12, color: '#dc2626' }}>
@@ -366,14 +478,17 @@ export default function AdminProjects() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#F9FAFB' }}>
-                    {['Project Name', 'DB ID', 'Type', 'Source → Destination', 'Sections', ''].map(h => (
+                    {['Project Name', 'DB ID', 'Type', 'Source → Destination', 'Sections', 'Alerts', 'Status', ''].map(h => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {projects.map((p, i) => (
-                    <tr key={p._id} style={{ background: editingId === p._id ? '#EFF6FF' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                    <tr key={p._id} style={{
+                      background: editingId === p._id ? '#EFF6FF' : i % 2 === 0 ? '#fff' : '#FAFAFA',
+                      opacity: (p.status === 'inactive' || p.status === 'on_hold') ? 0.6 : 1
+                    }}>
                       <td style={tdStyle}>
                         <span style={{ fontWeight: 500, color: '#111827' }}>{p.projectName}</span>
                       </td>
@@ -402,6 +517,57 @@ export default function AdminProjects() {
                             <span style={{ fontSize: 10, color: '#9ca3af' }}>CH only</span>
                           )}
                         </div>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {[
+                            { field: 'alertChannels',  label: 'CH',  title: 'Channel alerts' },
+                            { field: 'alertDms',        label: 'DM',  title: 'Direct Message alerts' },
+                            { field: 'alertDmToSpace',  label: 'DTS', title: 'DM→Space alerts' },
+                          ].map(({ field, label, title }) => {
+                            const on = p[field] !== false;
+                            return (
+                              <button
+                                key={field}
+                                onClick={() => handleToggleSection(p, field)}
+                                title={`${title}: ${on ? 'ON — click to disable' : 'OFF — click to enable'}`}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  padding: '2px 7px', borderRadius: 10,
+                                  border: `1px solid ${on ? '#bbf7d0' : '#e5e7eb'}`,
+                                  background: on ? '#f0fdf4' : '#f9fafb',
+                                  color: on ? '#16a34a' : '#9ca3af',
+                                  fontSize: 10, fontWeight: 500, cursor: 'pointer'
+                                }}
+                              >
+                                <i className={`ti ${on ? 'ti-bell' : 'ti-bell-off'}`} style={{ fontSize: 10 }} />
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td style={tdStyle}>
+                        {(() => {
+                          const sm = getStatusMeta(p.status || 'active');
+                          return (
+                            <select
+                              value={p.status || 'active'}
+                              onChange={e => handleStatusChange(p, e.target.value)}
+                              style={{
+                                padding: '3px 8px', borderRadius: 10,
+                                border: `1px solid ${sm.border}`,
+                                background: sm.bg, color: sm.color,
+                                fontSize: 11, fontWeight: 600,
+                                cursor: 'pointer', outline: 'none'
+                              }}
+                            >
+                              {STATUS_OPTIONS.map(s => (
+                                <option key={s.value} value={s.value}>{s.label}</option>
+                              ))}
+                            </select>
+                          );
+                        })()}
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <button onClick={() => startEdit(p)} style={iconBtn('#2563eb')}>Edit</button>
