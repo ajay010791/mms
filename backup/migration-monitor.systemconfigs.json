@@ -77,6 +77,7 @@
   "key": "alertRules",
   "__v": 0,
   "data": {
+    "dataRefreshIntervalMinutes": 60,
     "stallIntervalMinutes": 60,
     "cooldownHours": 2,
     "conflictThresholdHours": 4,
