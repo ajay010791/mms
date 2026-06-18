@@ -3,12 +3,20 @@ import api from '../../utils/axios';
 import toast from 'react-hot-toast';
 
 export default function AdminAlertRules() {
+  const REFRESH_PRESETS = [
+    { label: '10 min',  value: 10 },
+    { label: '20 min',  value: 20 },
+    { label: '30 min',  value: 30 },
+    { label: '1 hour',  value: 60 },
+  ];
+
   const [form, setForm] = useState({
-    stallIntervalMinutes:   '',
-    cooldownHours:          '',
-    conflictThresholdHours: '',
-    enableEmailAlerts:      true,
-    enableTeamsAlerts:      true
+    dataRefreshIntervalMinutes: 30,
+    stallIntervalMinutes:       '',
+    cooldownHours:              '',
+    conflictThresholdHours:     '',
+    enableEmailAlerts:          true,
+    enableTeamsAlerts:          true
   });
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
@@ -23,13 +31,14 @@ export default function AdminAlertRules() {
         if (res.data?.rules) {
           const r = res.data.rules;
           setForm({
-            stallIntervalMinutes:   r.stallIntervalMinutes?.toString()   || '',
-            cooldownHours:          r.cooldownHours?.toString()          ||
-                                    (r.cooldownMinutes ? (r.cooldownMinutes / 60).toString() : ''),
-            conflictThresholdHours: r.conflictThresholdHours?.toString() ||
-                                    (r.conflictThresholdMinutes ? (r.conflictThresholdMinutes / 60).toString() : ''),
-            enableEmailAlerts:      r.enableEmailAlerts !== false,
-            enableTeamsAlerts:      r.enableTeamsAlerts !== false
+            dataRefreshIntervalMinutes: Number(r.dataRefreshIntervalMinutes || r.stallIntervalMinutes || 30),
+            stallIntervalMinutes:       r.stallIntervalMinutes?.toString()   || '',
+            cooldownHours:              r.cooldownHours?.toString()          ||
+                                        (r.cooldownMinutes ? (r.cooldownMinutes / 60).toString() : ''),
+            conflictThresholdHours:     r.conflictThresholdHours?.toString() ||
+                                        (r.conflictThresholdMinutes ? (r.conflictThresholdMinutes / 60).toString() : ''),
+            enableEmailAlerts:          r.enableEmailAlerts !== false,
+            enableTeamsAlerts:          r.enableTeamsAlerts !== false
           });
           setLastSaved(res.data.updatedAt || null);
           console.log('[AlertRules] Loaded from MongoDB:', r);
@@ -71,11 +80,12 @@ export default function AdminAlertRules() {
     setSaving(true);
     try {
       const payload = {
-        stallIntervalMinutes:   mins,
-        cooldownHours:          cooldown,
-        conflictThresholdHours: conflict,
-        enableEmailAlerts:      form.enableEmailAlerts,
-        enableTeamsAlerts:      form.enableTeamsAlerts
+        dataRefreshIntervalMinutes: form.dataRefreshIntervalMinutes,
+        stallIntervalMinutes:       mins,
+        cooldownHours:              cooldown,
+        conflictThresholdHours:     conflict,
+        enableEmailAlerts:          form.enableEmailAlerts,
+        enableTeamsAlerts:          form.enableTeamsAlerts
       };
 
       console.log('[AlertRules] Saving:', payload);
@@ -84,7 +94,7 @@ export default function AdminAlertRules() {
 
       console.log('[AlertRules] Saved:', res.data);
       setLastSaved(res.data.updatedAt || new Date().toISOString());
-      toast.success(`Alert rules saved ✓ — Cron restarted every ${mins} min`);
+      toast.success(`Saved ✓ — Data refresh every ${form.dataRefreshIntervalMinutes} min`);
 
     } catch (err) {
       console.error('[AlertRules] Save error:', err.message);
@@ -164,6 +174,60 @@ export default function AdminAlertRules() {
         </div>
       </div>
 
+      {/* Data Refresh Interval */}
+      <div style={{
+        background:   'var(--color-background-primary)',
+        border:       '0.5px solid var(--color-border-tertiary)',
+        borderRadius: '12px',
+        padding:      '20px',
+        marginBottom: '14px'
+      }}>
+        <div style={{
+          fontSize:     '13px',
+          fontWeight:   '500',
+          color:        'var(--color-text-primary)',
+          marginBottom: '4px',
+          display:      'flex',
+          alignItems:   'center',
+          gap:          '6px'
+        }}>
+          <i className="ti ti-refresh" style={{ fontSize: '15px', color: '#185FA5' }} />
+          Data Refresh Interval
+        </div>
+        <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>
+          How often the system automatically pulls fresh data from Metabase and checks for alerts.
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {REFRESH_PRESETS.map(p => {
+            const active = form.dataRefreshIntervalMinutes === p.value;
+            return (
+              <button
+                key={p.value}
+                onClick={() => setForm(f => ({ ...f, dataRefreshIntervalMinutes: p.value }))}
+                style={{
+                  padding:      '8px 20px',
+                  borderRadius: '8px',
+                  border:       active ? '1.5px solid #185FA5' : '0.5px solid var(--color-border-secondary)',
+                  background:   active ? '#E6F1FB' : 'var(--color-background-secondary)',
+                  color:        active ? '#185FA5' : 'var(--color-text-secondary)',
+                  fontSize:     '12px',
+                  fontWeight:   active ? '600' : '400',
+                  cursor:       'pointer',
+                  transition:   'all 0.15s'
+                }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ fontSize: '10px', color: '#185FA5', marginTop: '10px', fontWeight: '500' }}>
+          Currently set to pull every {form.dataRefreshIntervalMinutes} minute{form.dataRefreshIntervalMinutes !== 1 ? 's' : ''}
+        </div>
+      </div>
+
       {/* Timing Settings */}
       <div style={{
         background:   'var(--color-background-primary)',
@@ -182,7 +246,7 @@ export default function AdminAlertRules() {
           gap:          '6px'
         }}>
           <i className="ti ti-clock" style={{ fontSize: '15px', color: '#185FA5' }} />
-          Timing Configuration
+          Alert Timing
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px' }}>

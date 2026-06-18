@@ -44,7 +44,21 @@ export function useProjects() {
 // Default export keeps existing `import useProjects, { useProjectLiveData }` working
 export default useProjects;
 
-// Per-project live data — auto-refreshes every 5 minutes while mounted.
+// Module-level cache so we only fetch the interval once per session.
+let _refreshIntervalMs = null;
+
+async function getRefreshIntervalMs() {
+  if (_refreshIntervalMs) return _refreshIntervalMs;
+  try {
+    const res = await api.get('/api/auth/refresh-interval');
+    _refreshIntervalMs = (res.data.dataRefreshIntervalMinutes || 30) * 60 * 1000;
+  } catch {
+    _refreshIntervalMs = 30 * 60 * 1000;
+  }
+  return _refreshIntervalMs;
+}
+
+// Per-project live data — auto-refreshes at the admin-configured interval.
 // Uses databaseId as the dep so re-fetches when the selected project changes.
 export function useProjectLiveData(databaseId) {
   const [data,    setData]    = useState(null);
@@ -67,9 +81,12 @@ export function useProjectLiveData(databaseId) {
 
   useEffect(() => {
     if (!databaseId) return;
+    let intervalId;
     fetchLiveData();
-    const interval = setInterval(fetchLiveData, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    getRefreshIntervalMs().then(ms => {
+      intervalId = setInterval(fetchLiveData, ms);
+    });
+    return () => clearInterval(intervalId);
   }, [databaseId]);
 
   return { data, loading, error, refetch: fetchLiveData };

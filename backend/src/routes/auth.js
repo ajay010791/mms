@@ -388,4 +388,20 @@ router.post('/reset-dev-password', async (req, res) => {
   }
 });
 
+// Public endpoint — returns the configured data refresh interval for dashboard polling.
+// No auth required so the dashboard can use it before the user is logged in.
+router.get('/refresh-interval', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const doc = await mongoose.connection.db
+      .collection('systemconfigs')
+      .findOne({ key: 'alertRules' });
+    const d = doc?.data || {};
+    const mins = Number(d.dataRefreshIntervalMinutes || d.stallIntervalMinutes || 30);
+    res.json({ dataRefreshIntervalMinutes: mins });
+  } catch {
+    res.json({ dataRefreshIntervalMinutes: 30 });
+  }
+});
+
 module.exports = router;

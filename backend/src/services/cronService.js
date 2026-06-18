@@ -20,6 +20,7 @@ const getAlertRules = async () => {
       const d = doc.data;
       return {
         stallIntervalMinutes: Number(d.stallIntervalMinutes || 30),
+        dataRefreshIntervalMinutes: Number(d.dataRefreshIntervalMinutes || d.stallIntervalMinutes || 30),
         // Cooldown in HOURS (support both old minutes and new hours schema)
         cooldownHours: Number(
           d.cooldownHours ||
@@ -40,11 +41,12 @@ const getAlertRules = async () => {
 
   console.warn('[Cron] No alert rules in MongoDB — using safe defaults');
   return {
-    stallIntervalMinutes:   30,
-    cooldownHours:          2,
-    conflictThresholdHours: 1,
-    enableEmailAlerts:      true,
-    enableTeamsAlerts:      true
+    stallIntervalMinutes:       30,
+    dataRefreshIntervalMinutes: 30,
+    cooldownHours:               2,
+    conflictThresholdHours:      1,
+    enableEmailAlerts:           true,
+    enableTeamsAlerts:           true
   };
 };
 
@@ -81,7 +83,7 @@ const checkProjects = async () => {
   console.log('\n[Cron] ══════════════════════════════════');
   console.log(`[Cron] Check at: ${new Date().toLocaleString()}`);
   console.log('[Cron] Settings:', {
-    checkEvery:       `${rules.stallIntervalMinutes} min`,
+    checkEvery:       `${rules.dataRefreshIntervalMinutes} min`,
     stallCooldown:    `${rules.cooldownHours} hrs`,
     conflictCooldown: `${rules.conflictThresholdHours} hrs`,
     emailEnabled:     rules.enableEmailAlerts,
@@ -876,14 +878,14 @@ const startCron = async () => {
     console.log('\n[Cron] ══════════════════════════════');
     console.log('[Cron] Loading alert rules from MongoDB...');
     console.log('[Cron] Rules:', {
-      stallInterval:    `${rules.stallIntervalMinutes} min`,
+      dataRefresh:      `${rules.dataRefreshIntervalMinutes} min`,
       stallCooldown:    `${rules.cooldownHours} hrs`,
       conflictCooldown: `${rules.conflictThresholdHours} hrs`,
       emailAlerts:      rules.enableEmailAlerts,
       teamsAlerts:      rules.enableTeamsAlerts
     });
 
-    const expression = buildCronExpression(rules.stallIntervalMinutes);
+    const expression = buildCronExpression(rules.dataRefreshIntervalMinutes);
     console.log(`[Cron] Cron expression: "${expression}"`);
 
     if (cronJob) {
@@ -898,7 +900,7 @@ const startCron = async () => {
       await checkProjects();
     });
 
-    console.log(`[Cron] ✓ Started — runs every ${rules.stallIntervalMinutes} min`);
+    console.log(`[Cron] ✓ Started — runs every ${rules.dataRefreshIntervalMinutes} min`);
     console.log('[Cron] ══════════════════════════════\n');
 
     setTimeout(async () => {

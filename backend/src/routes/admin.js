@@ -827,6 +827,7 @@ router.post('/config/alertrules', async (req, res) => {
   try {
     const {
       stallIntervalMinutes,
+      dataRefreshIntervalMinutes,
       cooldownHours,
       conflictThresholdHours,
       enableEmailAlerts,
@@ -840,12 +841,15 @@ router.post('/config/alertrules', async (req, res) => {
     const mongoose = require('mongoose');
     const db = mongoose.connection.db;
 
+    const refreshMins = Number(dataRefreshIntervalMinutes || stallIntervalMinutes);
+
     const rules = {
-      stallIntervalMinutes:   Number(stallIntervalMinutes),
-      cooldownHours:          Number(cooldownHours),
-      conflictThresholdHours: Number(conflictThresholdHours),
-      enableEmailAlerts:      enableEmailAlerts !== false,
-      enableTeamsAlerts:      enableTeamsAlerts !== false
+      stallIntervalMinutes:       Number(stallIntervalMinutes),
+      dataRefreshIntervalMinutes: refreshMins,
+      cooldownHours:              Number(cooldownHours),
+      conflictThresholdHours:     Number(conflictThresholdHours),
+      enableEmailAlerts:          enableEmailAlerts !== false,
+      enableTeamsAlerts:          enableTeamsAlerts !== false
     };
 
     await db.collection('systemconfigs').findOneAndUpdate(
@@ -870,7 +874,7 @@ router.post('/config/alertrules', async (req, res) => {
       success:        true,
       message:        'Alert rules saved and cron restarted',
       rules,
-      cronExpression: cronService.buildCronExpression(rules.stallIntervalMinutes)
+      cronExpression: cronService.buildCronExpression(refreshMins)
     });
 
   } catch (err) {
@@ -1319,6 +1323,7 @@ router.get('/alerts/cron-status', async (req, res) => {
     // Normalize to new schema (supports old hours-based records)
     const rules = {
       stallIntervalMinutes: Number(d.stallIntervalMinutes || 30),
+      dataRefreshIntervalMinutes: Number(d.dataRefreshIntervalMinutes || d.stallIntervalMinutes || 30),
       cooldownMinutes: Number(
         d.cooldownMinutes ||
         (d.cooldownHours ? d.cooldownHours * 60 : 120)
@@ -1327,13 +1332,15 @@ router.get('/alerts/cron-status', async (req, res) => {
         d.conflictThresholdMinutes ||
         (d.conflictThresholdHours ? d.conflictThresholdHours * 60 : 60)
       ),
+      cooldownHours:          Number(d.cooldownHours          || (d.cooldownMinutes          ? d.cooldownMinutes / 60          : 2)),
+      conflictThresholdHours: Number(d.conflictThresholdHours || (d.conflictThresholdMinutes ? d.conflictThresholdMinutes / 60 : 1)),
       enableEmailAlerts: d.enableEmailAlerts !== false,
       enableTeamsAlerts: d.enableTeamsAlerts !== false
     };
 
     res.json({
       rules,
-      cronExpression: cronService.buildCronExpression(rules.stallIntervalMinutes),
+      cronExpression: cronService.buildCronExpression(rules.dataRefreshIntervalMinutes),
       updatedAt:      rulesDoc.updatedAt,
       serverTime:     new Date().toISOString()
     });
